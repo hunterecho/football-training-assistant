@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "Backend API for football training app",
   "main": "dist/server.js",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "scripts": {
     "dev": "concurrently -k -n tsc,node -c yellow,magenta \"tsc --watch\" \"wait-on dist/server.js && node --watch dist/server.js\"",
     "build": "tsc",
