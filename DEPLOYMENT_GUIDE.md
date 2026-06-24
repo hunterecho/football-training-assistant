@@ -4,8 +4,8 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    前端 (Vercel)                            │
-│  https://your-vercel-domain.vercel.app                      │
+│              前端 (GitHub Pages / Vercel)                   │
+│  https://username.github.io/football-training-assistant    │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -25,6 +25,7 @@
 
 | 服务 | 平台 | 免费额度 | 适用场景 |
 |------|------|----------|----------|
+| 前端托管 | GitHub Pages | 不限带宽，自动HTTPS | 静态网站（推荐） |
 | 前端托管 | Vercel | 不限带宽，自动HTTPS | 静态网站 |
 | 后端API | Render | 750小时/月，自动HTTPS | Node.js服务 |
 | 数据库 | Supabase | 500MB存储，自动备份 | PostgreSQL |
@@ -82,7 +83,43 @@
 
 ---
 
-## 步骤3：部署前端到Vercel
+## 步骤3：部署前端到GitHub Pages（推荐）
+
+### 3.1 配置GitHub仓库设置
+1. 访问你的GitHub仓库页面
+2. 点击 **Settings** -> **Pages**
+3. 在 **Build and deployment** 部分：
+   - **Source**: `Deploy from a branch`
+   - **Branch**: `gh-pages` / `root`
+   - 点击 **Save**
+
+### 3.2 更新部署脚本
+编辑 `training-app/package.json`，将 `VITE_API_URL` 替换为你的Render后端URL：
+
+```json
+{
+  "scripts": {
+    "deploy:gh-pages": "VITE_DEPLOY_TARGET=gh-pages VITE_API_URL=https://your-service.onrender.com npm run build && npx --yes gh-pages -d dist"
+  }
+}
+```
+
+### 3.3 部署到GitHub Pages
+在本地终端执行：
+
+```bash
+cd training-app
+npm run deploy:gh-pages
+```
+
+### 3.4 验证部署
+访问 `https://your-username.github.io/football-training-assistant`
+
+---
+
+## 步骤3（备选）：部署前端到Vercel
+
+如果你可以访问Vercel，可以使用此方案：
 
 ### 3.1 创建Vercel项目
 1. 访问 [Vercel官网](https://vercel.com/) 并注册账号

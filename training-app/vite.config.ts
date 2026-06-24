@@ -5,6 +5,7 @@ import { traeBadgePlugin } from 'vite-plugin-trae-solo-badge';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  const isGhPages = env.VITE_DEPLOY_TARGET === 'gh-pages';
   return {
     server: {
       host: '0.0.0.0',
@@ -28,7 +29,12 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       sourcemap: 'hidden',
+      ...(isGhPages && {
+        outDir: 'dist',
+        emptyOutDir: true,
+      }),
     },
+    base: isGhPages ? '/football-training-assistant/' : '/',
     plugins: [
       react({
         babel: {
