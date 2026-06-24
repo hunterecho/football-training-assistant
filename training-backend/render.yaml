@@ -1,0 +1,23 @@
+# =============================================
+# Render.com 部署配置
+# =============================================
+# 使用: 登录 Render -> New -> Blueprint -> 粘贴此配置
+
+services:
+  - type: web
+    name: coach-train-backend
+    env: node
+    plan: free
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: PORT
+        value: 10000

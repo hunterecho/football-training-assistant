@@ -1,0 +1,527 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTrainingStore } from '@/store/trainingStore';
+import { useSettingsStore } from '@/store/settingsStore';
+import { useSpeech } from '@/hooks/useSpeech';
+import { useBeep } from '@/hooks/useBeep';
+import { useWakeLock } from '@/hooks/useWakeLock';
+import { formatDuration } from '@/utils/duration';
+import {
+  Pause,
+  Play,
+  SkipForward,
+  SkipBack,
+  RotateCcw,
+  Volume2,
+  VolumeX,
+  Trophy,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+export function SessionTimer({ onBack }: { onBack?: () => void }) {
+  const activeId = useTrainingStore((s) => s.activeTemplateId);
+  const templates = useTrainingStore((s) => s.templates);
+  const session = useTrainingStore((s) => s.session);
+  const tickRaw = useTrainingStore((s) => s.tick);
+  const nextDrillRaw = useTrainingStore((s) => s.nextDrill);
+  const prevDrillRaw = useTrainingStore((s) => s.prevDrill);
+  const pauseSession = useTrainingStore((s) => s.pauseSession);
+  const resumeSession = useTrainingStore((s) => s.resumeSession);
+  const startSessionRaw = useTrainingStore((s) => s.startSession);
+  const resetSession = useTrainingStore((s) => s.resetSession);
+
+  const settings = useSettingsStore((s) => s.settings);
+  const [muted, setMuted] = useState(false);
+  const effectiveSpeechEnabled = settings.speechEnabled && !muted;
+  const speech = useSpeech({
+    enabled: effectiveSpeechEnabled,
+    rate: settings.speechRate,
+    volume: settings.speechVolume,
+    voiceIndex: settings.speechVoiceIndex,
+  });
+  const { beep } = useBeep();
+
+  const template = useMemo(
+    () => templates.find((t) => t.id === activeId) ?? null,
+    [templates, activeId]
+  );
+  const drill = template?.drills[session.drillIndex] ?? null;
+
+  // When muted changes, sync with speech engine.
+  useEffect(() => {
+    if (muted) {
+      speech.clear();
+    } else if (session.status === 'running' && drill) {
+      // When unmuting during an active session, wake up the engine so
+      // that the next cue/end-event enqueue works reliably.
+      try { window.speechSynthesis?.resume(); } catch { /* noop */ }
+    }
+  }, [muted, speech, session.status, drill]);
+
+  // Debug helper: log when speech is unsupported so the user knows.
+  useEffect(() => {
+    if (!speech.supported) {
+      console.warn('[speech] 当前浏览器不支持 Web Speech API，语音播报不可用。');
+    }
+  }, [speech.supported]);
+
+  // Refs to keep callbacks stable while always using latest.
+  const tickRef = useRef(tickRaw);
+  tickRef.current = tickRaw;
+  const nextDrillRef = useRef(nextDrillRaw);
+  nextDrillRef.current = nextDrillRaw;
+  const prevDrillRef = useRef(prevDrillRaw);
+  prevDrillRef.current = prevDrillRaw;
+  const startSessionRef = useRef(startSessionRaw);
+  startSessionRef.current = startSessionRaw;
+
+  const lastEndedRef = useRef<boolean>(false);
+  const lastFiveSecRef = useRef<number>(0);
+  const firedCueKeysRef = useRef<Set<string>>(new Set());
+  const firedMinuteKeysRef = useRef<Set<string>>(new Set());
+  const firedOneMinLeftRef = useRef<boolean>(false);
+  const startedDrillRef = useRef<string>('');
+  const prevDrillIndexRef = useRef<number>(session.drillIndex);
+
+  useWakeLock(settings.keepScreenAwake && session.status === 'running');
+
+  // Main tick loop — 250ms interval. Uses ref so effect isn't recreated every render.
+  useEffect(() => {
+    if (session.status !== 'running') return;
+    const id = window.setInterval(() => {
+      tickRef.current(Date.now());
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [session.status, session.drillIndex]);
+
+  // When the session status changes, mirror to speech engine.
+  useEffect(() => {
+    if (session.status === 'paused') {
+      speech.pause();
+    } else if (session.status === 'running') {
+      speech.resume();
+    } else if (session.status === 'idle') {
+      speech.clear();
+    }
+  }, [session.status]);
+
+  useEffect(() => {
+    if (!template || !drill) return;
+
+    // When drill changes, cancel any still-playing speech from previous drill
+    // so the new drill's intro/cues are heard immediately.
+    if (prevDrillIndexRef.current !== session.drillIndex) {
+      speech.clear();
+      prevDrillIndexRef.current = session.drillIndex;
+    }
+
+    const drillKey = `${template.id}:${session.drillIndex}`;
+    if (startedDrillRef.current !== drillKey) {
+      startedDrillRef.current = drillKey;
+      firedCueKeysRef.current = new Set();
+      firedMinuteKeysRef.current = new Set();
+      firedOneMinLeftRef.current = false;
+      lastEndedRef.current = false;
+      lastFiveSecRef.current = 0;
+    }
+
+    // Start of drill
+    if (session.status === 'running' && session.remaining >= drill.duration - 0.05) {
+      const intro = `现在开始 ${drill.title}，时长 ${formatDuration(drill.duration)}`;
+      speech.enqueue(intro);
+      beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
+      drill.cues
+        .filter((c) => c.trigger === 'start')
+        .forEach((c) => {
+          const key = `start:${c.id}`;
+          if (!firedCueKeysRef.current.has(key)) {
+            firedCueKeysRef.current.add(key);
+            speech.enqueue(c.text);
+          }
+        });
+    }
+
+    const remainingInt = Math.max(0, Math.ceil(session.remaining));
+
+    if (session.status === 'running' && session.remaining > 0) {
+      const elapsed = drill.duration - session.remaining;
+
+      // Reminder: every full minute boundary crossed (elapsed 60s, 120s, ...).
+      // Say: "已过 N 分钟，还剩 X 分 Y 秒". Only once per minute.
+      const elapsedMinutes = Math.floor(elapsed / 60);
+      if (
+        elapsedMinutes >= 1 &&
+        !firedMinuteKeysRef.current.has(`m:${elapsedMinutes}`) &&
+        elapsed >= elapsedMinutes * 60
+      ) {
+        firedMinuteKeysRef.current.add(`m:${elapsedMinutes}`);
+        const left = Math.max(0, Math.ceil(drill.duration - elapsed));
+        speech.enqueue(`已过 ${elapsedMinutes} 分钟，还剩 ${formatDuration(left)}`);
+      }
+
+      // Reminder: "还剩 1 分钟" — exactly once per drill when remaining ≤ 60s
+      if (!firedOneMinLeftRef.current && remainingInt <= 60 && remainingInt > 5) {
+        firedOneMinLeftRef.current = true;
+        speech.enqueue('还剩一分钟');
+      }
+
+      // Interval cues (fire once when the mark is reached)
+      drill.cues
+        .filter((c) => c.trigger === 'interval' && c.seconds)
+        .forEach((c) => {
+          const key = `interval:${c.id}`;
+          if (c.seconds && elapsed >= c.seconds && !firedCueKeysRef.current.has(key)) {
+            firedCueKeysRef.current.add(key);
+            speech.enqueue(c.text);
+          }
+        });
+
+      // Periodic cues: at most twice per drill total.
+      drill.cues
+        .filter((c) => c.trigger === 'periodic' && c.seconds && c.seconds > 0)
+        .forEach((c) => {
+          if (!c.seconds) return;
+          const key1 = `periodic:${c.id}:1`;
+          const key2 = `periodic:${c.id}:2`;
+          if (elapsed >= c.seconds && !firedCueKeysRef.current.has(key1)) {
+            firedCueKeysRef.current.add(key1);
+            speech.enqueue(c.text);
+          } else if (elapsed >= c.seconds * 2 && !firedCueKeysRef.current.has(key2)) {
+            firedCueKeysRef.current.add(key2);
+            speech.enqueue(c.text);
+          }
+        });
+    }
+
+    // Countdown last 5 seconds (5, 4, 3, 2, 1)
+    if (
+      session.status === 'running' &&
+      session.remaining > 0 &&
+      remainingInt <= 5 &&
+      remainingInt !== lastFiveSecRef.current
+    ) {
+      lastFiveSecRef.current = remainingInt;
+      if (remainingInt > 0) {
+        speech.enqueue(`${remainingInt}`);
+        beep({ enabled: settings.soundEnabled, frequency: 440, durationMs: 80 });
+      }
+    }
+
+    // End of drill
+    if (session.status === 'finished' && !lastEndedRef.current) {
+      lastEndedRef.current = true;
+      const isLast = session.drillIndex >= template.drills.length - 1;
+      if (isLast) {
+        speech.enqueue('训练完成，大家辛苦了！');
+      } else {
+        const next = template.drills[session.drillIndex + 1];
+        speech.enqueue(`${drill.title} 完成，准备进入 ${next?.title ?? '下一环节'}`);
+      }
+      beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
+      window.setTimeout(() => {
+        speech.clear();
+        nextDrillRef.current();
+      }, 1800);
+    }
+  }, [session, drill, template, speech, beep, settings.soundEnabled]);
+
+  // Remove auto-start — training only begins when user clicks the start button.
+  // Existing session state (paused / finished) is restored as-is.
+
+  if (!template) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 p-6 text-center">
+        <div className="text-slate-400">还没有选中训练模板</div>
+        <button
+          onClick={onBack}
+          className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+        >
+          去计划页选择
+        </button>
+      </div>
+    );
+  }
+
+  if (session.status === 'idle' || !drill) {
+    const totalSeconds = template ? template.drills.reduce((a, d) => a + d.duration, 0) : 0;
+    return (
+      <div className="flex min-h-[70vh] flex-col items-center justify-center gap-6 p-6 text-center">
+        <div className="w-full max-w-sm rounded-3xl border border-slate-800 bg-slate-900/60 p-6">
+          <div className="text-xs uppercase tracking-widest text-emerald-400">
+            训练计时
+          </div>
+          <div className="mt-2 text-2xl font-bold text-white">
+            {template?.name ?? '未选择模板'}
+          </div>
+          {template && (
+            <div className="mt-2 flex items-center justify-center gap-2 text-sm text-slate-400">
+              <span>{template.drills.length} 个环节</span>
+              <span>·</span>
+              <span>总时长 {formatDuration(totalSeconds)}</span>
+            </div>
+          )}
+          {template?.description && (
+            <p className="mt-2 text-xs text-slate-500">{template.description}</p>
+          )}
+        </div>
+
+        <div className="flex flex-col items-center gap-2 text-slate-400">
+          <div className="text-sm">准备好了吗？</div>
+          <div className="text-xs">点击下方按钮开始训练</div>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onBack}
+            className="rounded-xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            返回
+          </button>
+          <button
+            onClick={() => startSessionRef.current(template!.id, 0)}
+            disabled={!template}
+            className="rounded-xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+          >
+            开始训练
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const isLast = session.drillIndex >= template.drills.length - 1 && session.status === 'finished';
+  const progress = drill.duration === 0 ? 0 : 1 - session.remaining / drill.duration;
+  const totalDrills = template.drills.length;
+
+  return (
+    <div className="relative mx-auto w-full max-w-2xl pb-28 pt-14">
+      <div className="flex items-center justify-between p-4">
+        <button
+          onClick={onBack}
+          className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+        >
+          返回
+        </button>
+        <div className="text-sm text-slate-400">
+          {session.drillIndex + 1} / {totalDrills}
+        </div>
+        {/* 静音按钮在 header 右侧，避开 UserMenu */}
+        <button
+          onClick={() => {
+            setMuted((m) => !m);
+          }}
+          className="rounded-lg bg-slate-900 p-2 text-slate-300 hover:bg-slate-800"
+          aria-label="静音切换"
+          title={effectiveSpeechEnabled ? '静音' : '取消静音'}
+        >
+          {effectiveSpeechEnabled ? (
+            <Volume2 className="h-4 w-4" />
+          ) : (
+            <VolumeX className="h-4 w-4" />
+          )}
+        </button>
+      </div>
+
+      <div className="px-4">
+        <div className="mb-2 text-center text-xs uppercase tracking-widest text-emerald-400">
+          当前环节
+        </div>
+        <h1 className="text-center text-3xl font-bold text-white">{drill.title}</h1>
+        {drill.summary && (
+          <p className="mt-1 text-center text-sm text-slate-400">{drill.summary}</p>
+        )}
+      </div>
+
+      {/* Big Timer */}
+      <div className="relative mx-auto my-6 flex h-72 w-72 items-center justify-center">
+        <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100">
+          <circle
+            cx="50"
+            cy="50"
+            r="45"
+            fill="none"
+            stroke="rgba(255,255,255,0.06)"
+            strokeWidth="3"
+          />
+          <circle
+            cx="50"
+            cy="50"
+            r="45"
+            fill="none"
+            stroke={isLast ? '#10b981' : '#34d399'}
+            strokeWidth="3"
+            strokeDasharray={`${2 * Math.PI * 45}`}
+            strokeDashoffset={`${2 * Math.PI * 45 * (1 - progress)}`}
+            strokeLinecap="round"
+            style={{ transition: 'stroke-dashoffset 0.4s linear' }}
+          />
+        </svg>
+        <div className="flex flex-col items-center">
+          <div
+            className={cn(
+              'font-mono text-6xl font-bold tabular-nums',
+              session.remaining <= 5 ? 'text-red-400' : 'text-white'
+            )}
+          >
+            {formatDuration(session.remaining)}
+          </div>
+          <div className="mt-2 text-xs text-slate-500">
+            {session.status === 'running'
+              ? '进行中'
+              : session.status === 'paused'
+                ? '已暂停'
+                : session.status === 'finished'
+                  ? '已完成'
+                  : ''}
+          </div>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="mx-auto flex max-w-md items-center justify-center gap-3 px-4">
+        <button
+          onClick={() => { speech.clear(); prevDrillRef.current(); }}
+          className="flex h-14 w-14 items-center justify-center rounded-full border border-slate-700 text-slate-300 hover:bg-slate-800"
+          aria-label="上一个环节"
+        >
+          <SkipBack className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => {
+            if (session.status === 'running') {
+              speech.pause();
+              pauseSession();
+            } else if (session.status === 'paused') {
+              resumeSession();
+              speech.resume();
+            } else if (session.status === 'finished') {
+              speech.clear();
+              nextDrillRef.current();
+            }
+          }}
+          className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400"
+        >
+          {session.status === 'running' ? (
+            <Pause className="h-8 w-8" />
+          ) : (
+            <Play className="h-8 w-8 translate-x-0.5" />
+          )}
+        </button>
+        <button
+          onClick={() => { speech.clear(); nextDrillRef.current(); }}
+          className="flex h-14 w-14 items-center justify-center rounded-full border border-slate-700 text-slate-300 hover:bg-slate-800"
+          aria-label="下一个环节"
+        >
+          <SkipForward className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Cues */}
+      <div className="mx-auto mt-6 max-w-2xl px-4">
+        <div className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+          教学话术
+        </div>
+        <div className="max-h-60 space-y-2 overflow-y-auto rounded-2xl bg-slate-900/70 p-3">
+          {drill.cues.length === 0 && (
+            <div className="p-4 text-center text-sm text-slate-500">暂无话术</div>
+          )}
+          {drill.cues.map((c, idx) => (
+            <div
+              key={c.id}
+              className={cn(
+                'rounded-xl border px-3 py-2 text-sm',
+                c.trigger === 'start'
+                  ? 'border-emerald-500/30 bg-emerald-500/5 text-slate-200'
+                  : 'border-slate-800 bg-slate-950/40 text-slate-300'
+              )}
+            >
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 text-xs text-slate-500">#{idx + 1}</span>
+                <p className="flex-1 leading-relaxed">{c.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {isLast && (
+        <div className="mx-auto mt-6 max-w-2xl px-4">
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-6 text-center">
+            <Trophy className="mx-auto mb-3 h-10 w-10 text-emerald-400" />
+            <div className="text-lg font-semibold text-white">训练完成！</div>
+            <button
+              onClick={() => {
+                speech.clear();
+                resetSession();
+                if (onBack) onBack();
+              }}
+              className="mt-4 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+            >
+              返回计划页
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="mx-auto mt-6 max-w-2xl px-4">
+        <button
+          onClick={() => {
+            speech.clear();
+            resetSession();
+            if (onBack) onBack();
+          }}
+          className="mx-auto flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300"
+        >
+          <RotateCcw className="h-3 w-3" />
+          重置训练
+        </button>
+      </div>
+
+      {/* Speech debug panel (temporary) */}
+      <div className="mx-auto mt-4 max-w-2xl px-4">
+        <details className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 text-xs text-slate-400">
+          <summary className="cursor-pointer font-medium text-slate-300">
+            🔊 语音诊断信息
+            {!speech.supported && <span className="ml-2 text-red-400">（浏览器不支持）</span>}
+            {speech.supported && speech.debug.voiceCount === 0 && (
+              <span className="ml-2 text-yellow-400">（语音列表为空）</span>
+            )}
+            {speech.supported && speech.debug.voiceCount > 0 && (
+              <span className="ml-2 text-emerald-400">
+                （已加载 {speech.debug.voiceCount} 个语音）
+              </span>
+            )}
+          </summary>
+          <div className="mt-2 space-y-1">
+            <div>浏览器支持 speechSynthesis：{speech.supported ? '✅' : '❌'}</div>
+            <div>可用语音数量：{speech.debug.voiceCount}</div>
+            {speech.debug.voices.length > 0 && (
+              <div className="max-h-32 overflow-y-auto">
+                语音列表：
+                <ul className="ml-4 mt-1 list-disc space-y-0.5">
+                  {speech.debug.voices.slice(0, 10).map((v, i) => (
+                    <li key={i} className="font-mono">
+                      {v}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {speech.debug.lastError && (
+              <div className="text-red-400">最近错误：{speech.debug.lastError}</div>
+            )}
+            <div className="pt-2">
+              <button
+                onClick={() => {
+                  speech.speak('测试语音，现在开始');
+                }}
+                className="mt-1 rounded-lg bg-emerald-500/20 px-3 py-1 text-emerald-400 hover:bg-emerald-500/30"
+              >
+                🔊 播放测试语音
+              </button>
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+  );
+}
