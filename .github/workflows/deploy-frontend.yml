@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -18,6 +18,9 @@ concurrency:
 
 jobs:
   deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -34,11 +37,16 @@ jobs:
         run: cd training-app && npm ci
 
       - name: Build
-        run: cd training-app && VITE_DEPLOY_TARGET=gh-pages VITE_API_URL=https://football-training-assistant.onrender.com npm run build
+        run: cd training-app && VITE_DEPLOY_TARGET=gh-pages VITE_API_URL=https://football-training-assistant.onrender.com/api npm run build
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./training-app/dist
-          destination_dir: football-training-assistant
+          path: training-app/dist
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
