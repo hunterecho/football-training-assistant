@@ -11,7 +11,7 @@
     "check": "tsc -b --noEmit",
     "deploy:local": "npm run build && npx --yes serve -s dist -l 4173",
     "deploy:vercel": "vercel --prod",
-    "deploy:gh-pages": "VITE_DEPLOY_TARGET=gh-pages VITE_API_URL=https://your-backend.onrender.com npm run build && npx --yes gh-pages -d dist"
+    "deploy:gh-pages": "VITE_DEPLOY_TARGET=gh-pages VITE_API_URL=https://football-training-assistant.onrender.com npm run build && npx --yes gh-pages -d dist"
   },
   "dependencies": {
     "clsx": "^2.1.1",
