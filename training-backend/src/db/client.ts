@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import ws from 'ws';
 import { config, isSupabaseConfigured } from '../config/index';
 
 export type UserRow = {
@@ -41,7 +42,15 @@ let client: SupabaseClient | null = null;
 export function getSupabase() {
   if (!isSupabaseConfigured()) return null;
   if (!client) {
-    client = createClient(config.supabaseUrl, config.supabaseServiceKey);
+    client = createClient(config.supabaseUrl, config.supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+      realtime: {
+        transport: ws as unknown as any,
+      },
+    });
   }
   return client;
 }
