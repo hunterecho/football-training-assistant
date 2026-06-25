@@ -11,6 +11,8 @@ import { UserMenu } from '@/components/Layout/UserMenu';
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
 
+const ROUTER_BASENAME = import.meta.env.VITE_DEPLOY_TARGET === 'gh-pages' ? '/football-training-assistant' : '/';
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
@@ -26,7 +28,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
-      <Router>
+      <Router basename={ROUTER_BASENAME}>
         {user && <UserMenu />}
         <div className="mx-auto min-h-screen w-full">
           <Routes>
