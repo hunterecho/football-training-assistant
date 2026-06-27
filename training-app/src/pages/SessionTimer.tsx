@@ -21,6 +21,8 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   const activeId = useTrainingStore((s) => s.activeTemplateId);
   const templates = useTrainingStore((s) => s.templates);
   const session = useTrainingStore((s) => s.session);
+  const records = useTrainingStore((s) => s.records);
+  const activeRecordId = useTrainingStore((s) => s.activeRecordId);
   const tickRaw = useTrainingStore((s) => s.tick);
   const nextDrillRaw = useTrainingStore((s) => s.nextDrill);
   const prevDrillRaw = useTrainingStore((s) => s.prevDrill);
@@ -28,6 +30,8 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   const resumeSession = useTrainingStore((s) => s.resumeSession);
   const startSessionRaw = useTrainingStore((s) => s.startSession);
   const resetSession = useTrainingStore((s) => s.resetSession);
+  const addRecord = useTrainingStore((s) => s.addRecord);
+  const updateRecord = useTrainingStore((s) => s.updateRecord);
 
   const settings = useSettingsStore((s) => s.settings);
   const [muted, setMuted] = useState(false);
@@ -40,10 +44,18 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   });
   const { beep } = useBeep();
 
-  const template = useMemo(
-    () => templates.find((t) => t.id === activeId) ?? null,
-    [templates, activeId]
-  );
+  const template = useMemo(() => {
+    // 优先使用 activeRecordId 关联的模板
+    if (activeRecordId) {
+      const activeRecord = records.find((r) => r.id === activeRecordId);
+      if (activeRecord) {
+        const tpl = templates.find((t) => t.id === activeRecord.templateId);
+        if (tpl) return tpl;
+      }
+    }
+    // 其次使用 activeTemplateId
+    return templates.find((t) => t.id === activeId) ?? null;
+  }, [templates, activeId, activeRecordId, records]);
   const drill = template?.drills[session.drillIndex] ?? null;
 
   // When muted changes, sync with speech engine.
@@ -81,8 +93,50 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   const firedOneMinLeftRef = useRef<boolean>(false);
   const startedDrillRef = useRef<string>('');
   const prevDrillIndexRef = useRef<number>(session.drillIndex);
+  const recordIdRef = useRef<string | null>(null);
 
   useWakeLock(settings.keepScreenAwake && session.status === 'running');
+
+  useEffect(() => {
+    if (session.status === 'running' && session.startedAt && template) {
+      // Check if there's already an in_progress record for this session
+      const existingRecord = records.find(
+        r => r.templateId === template.id && r.status === 'in_progress'
+      );
+      if (existingRecord) {
+        recordIdRef.current = existingRecord.id;
+        return;
+      }
+      if (!recordIdRef.current) {
+        // If there's an active record (from a plan), update it to in_progress
+        if (activeRecordId) {
+          const activeRecord = records.find(r => r.id === activeRecordId);
+          if (activeRecord && activeRecord.status === 'planned') {
+            updateRecord(activeRecordId, {
+              status: 'in_progress',
+              startTime: session.startedAt,
+              durationSeconds: 0,
+              totalDrills: template.drills.length,
+              completedDrills: session.drillIndex,
+            });
+            recordIdRef.current = activeRecordId;
+            return;
+          }
+        }
+        // Otherwise, create a new record (from template directly)
+        const recordId = addRecord({
+          templateId: template.id,
+          title: template.name,
+          status: 'in_progress',
+          startTime: session.startedAt,
+          durationSeconds: 0,
+          totalDrills: template.drills.length,
+          completedDrills: session.drillIndex,
+        });
+        recordIdRef.current = recordId;
+      }
+    }
+  }, [session.status, session.startedAt, template, activeRecordId, addRecord, updateRecord, records]);
 
   // Main tick loop — 250ms interval. Uses ref so effect isn't recreated every render.
   useEffect(() => {
@@ -277,7 +331,9 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
             返回
           </button>
           <button
-            onClick={() => startSessionRef.current(template!.id, 0)}
+            onClick={() => {
+              startSessionRef.current(template!.id, 0);
+            }}
             disabled={!template}
             className="rounded-xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
           >
@@ -450,6 +506,15 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
             <div className="text-lg font-semibold text-white">训练完成！</div>
             <button
               onClick={() => {
+                if (recordIdRef.current && session.startedAt) {
+                  const duration = Date.now() - session.startedAt;
+                  updateRecord(recordIdRef.current, {
+                    status: 'completed',
+                    endTime: Date.now(),
+                    durationSeconds: Math.round(duration / 1000),
+                    completedDrills: template!.drills.length,
+                  });
+                }
                 speech.clear();
                 resetSession();
                 if (onBack) onBack();
@@ -474,53 +539,6 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
           <RotateCcw className="h-3 w-3" />
           重置训练
         </button>
-      </div>
-
-      {/* Speech debug panel (temporary) */}
-      <div className="mx-auto mt-4 max-w-2xl px-4">
-        <details className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 text-xs text-slate-400">
-          <summary className="cursor-pointer font-medium text-slate-300">
-            🔊 语音诊断信息
-            {!speech.supported && <span className="ml-2 text-red-400">（浏览器不支持）</span>}
-            {speech.supported && speech.debug.voiceCount === 0 && (
-              <span className="ml-2 text-yellow-400">（语音列表为空）</span>
-            )}
-            {speech.supported && speech.debug.voiceCount > 0 && (
-              <span className="ml-2 text-emerald-400">
-                （已加载 {speech.debug.voiceCount} 个语音）
-              </span>
-            )}
-          </summary>
-          <div className="mt-2 space-y-1">
-            <div>浏览器支持 speechSynthesis：{speech.supported ? '✅' : '❌'}</div>
-            <div>可用语音数量：{speech.debug.voiceCount}</div>
-            {speech.debug.voices.length > 0 && (
-              <div className="max-h-32 overflow-y-auto">
-                语音列表：
-                <ul className="ml-4 mt-1 list-disc space-y-0.5">
-                  {speech.debug.voices.slice(0, 10).map((v, i) => (
-                    <li key={i} className="font-mono">
-                      {v}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {speech.debug.lastError && (
-              <div className="text-red-400">最近错误：{speech.debug.lastError}</div>
-            )}
-            <div className="pt-2">
-              <button
-                onClick={() => {
-                  speech.speak('测试语音，现在开始');
-                }}
-                className="mt-1 rounded-lg bg-emerald-500/20 px-3 py-1 text-emerald-400 hover:bg-emerald-500/30"
-              >
-                🔊 播放测试语音
-              </button>
-            </div>
-          </div>
-        </details>
       </div>
     </div>
   );

@@ -1,7 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import {
   CalendarDays,
-  Timer,
   FileText,
   Settings as SettingsIcon,
   Dumbbell,
@@ -11,8 +10,7 @@ import { cn } from '@/lib/utils';
 
 const items = [
   { to: '/', label: '今日计划', icon: CalendarDays },
-  { to: '/session', label: '训练计时', icon: Timer },
-  { to: '/plans', label: '训练计划', icon: ListTodo },
+  { to: '/schedule', label: '训练日程', icon: ListTodo },
   { to: '/templates', label: '模板', icon: Dumbbell },
   { to: '/import', label: '文档导入', icon: FileText },
   { to: '/settings', label: '设置', icon: SettingsIcon },

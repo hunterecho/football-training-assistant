@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useTrainingStore, toDateKey } from '@/store/trainingStore';
 import { DrillCard } from '@/components/Plan/DrillCard';
 import { totalDuration } from '@/utils/duration';
@@ -14,16 +14,17 @@ import { cn } from '@/lib/utils';
 
 export function TodayPlan() {
   const templates = useTrainingStore((s) => s.templates);
-  const plans = useTrainingStore((s) => s.plans);
+  const records = useTrainingStore((s) => s.records);
   const activeId = useTrainingStore((s) => s.activeTemplateId);
   const session = useTrainingStore((s) => s.session);
   const setActiveTemplate = useTrainingStore((s) => s.setActiveTemplate);
-  const setActivePlan = useTrainingStore((s) => s.setActivePlan);
+  const setActiveRecord = useTrainingStore((s) => s.setActiveRecord);
   const startSession = useTrainingStore((s) => s.startSession);
+  const resumeSession = useTrainingStore((s) => s.resumeSession);
+  const pauseSession = useTrainingStore((s) => s.pauseSession);
   const skipToDrill = useTrainingStore((s) => s.skipToDrill);
-  const completePlan = useTrainingStore((s) => s.completePlan);
-
-  const navigate = useNavigate();
+  const toggleRecordStatus = useTrainingStore((s) => s.toggleRecordStatus);
+  const setSessionPanelOpen = useTrainingStore((s) => s.setSessionPanelOpen);
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('zh-CN', {
@@ -34,12 +35,12 @@ export function TodayPlan() {
   });
   const todayKey = toDateKey(today);
 
-  const todayPlan = plans.find((p) => p.date === todayKey);
+  const todayRecord = records.find((r) => r.date === todayKey);
 
   const template = useMemo(() => {
-    const id = todayPlan?.templateId ?? activeId;
+    const id = todayRecord?.templateId ?? activeId;
     return templates.find((t) => t.id === id) ?? templates[0] ?? null;
-  }, [templates, activeId, todayPlan]);
+  }, [templates, activeId, todayRecord]);
 
   const totalSeconds = template?.drills.reduce((a, d) => a + d.duration, 0) ?? 0;
   const currentIndex =
@@ -69,11 +70,11 @@ export function TodayPlan() {
 
   const handleFinishLast = () => {
     if (
-      todayPlan &&
-      session.templateId === todayPlan.templateId &&
+      todayRecord &&
+      session.templateId === todayRecord.templateId &&
       session.status === 'finished'
     ) {
-      completePlan(todayPlan.id);
+      toggleRecordStatus(todayRecord.id);
     }
   };
 
@@ -98,29 +99,24 @@ export function TodayPlan() {
           </div>
         </div>
 
-        {todayPlan && (
+        {todayRecord && todayRecord.status === 'planned' && (
           <div className="mt-4 flex items-start gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3">
             <CalendarCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-white">
-                今日计划：{todayPlan.title}
+                今日计划：{todayRecord.title}
               </div>
               <div className="mt-0.5 flex items-center gap-2 text-xs text-emerald-300">
                 <span>来自模板「{template?.name}」</span>
-                {todayPlan.status === 'completed' && (
-                  <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] text-emerald-300">
-                    已完成
-                  </span>
-                )}
               </div>
-              {todayPlan.note && (
+              {todayRecord.note && (
                 <div className="mt-1 text-xs text-slate-400">
-                  📝 {todayPlan.note}
+                  📝 {todayRecord.note}
                 </div>
               )}
             </div>
             <Link
-              to="/plans"
+              to="/schedule"
               className="shrink-0 rounded-lg bg-emerald-500/20 px-2.5 py-1 text-xs text-emerald-300 hover:bg-emerald-500/30"
             >
               管理
@@ -128,8 +124,8 @@ export function TodayPlan() {
           </div>
         )}
 
-        {/* Template selector (only shown when no plan for today) */}
-        {!todayPlan && (
+        {/* Template selector (only shown when no plan for today and no active session) */}
+        {!todayRecord && !hasActive && (
           <div className="mt-4">
             <label className="text-xs text-slate-400">当前模板</label>
             <div className="mt-1.5 flex gap-2 overflow-x-auto pb-2">
@@ -159,19 +155,30 @@ export function TodayPlan() {
 
         {/* CTA */}
         <div className="mt-4 flex gap-2">
-          {hasActive && session.status !== 'idle' ? (
+          {hasActive && session.status === 'paused' ? (
             <button
-              onClick={() => navigate('/session')}
+              onClick={() => {
+                resumeSession();
+                setSessionPanelOpen(true);
+              }}
+              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400"
+            >
+              <PlayCircle className="h-5 w-5" />
+              恢复训练
+            </button>
+          ) : hasActive && session.status !== 'idle' ? (
+            <button
+              onClick={() => setSessionPanelOpen(true)}
               className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400"
             >
               <PlayCircle className="h-5 w-5" />
               继续训练
             </button>
-          ) : todayPlan?.status === 'completed' ? (
+          ) : todayRecord?.status === 'completed' ? (
             <button
               onClick={() => {
                 if (template) startSession(template.id, 0);
-                navigate('/session');
+                setSessionPanelOpen(true);
               }}
               className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 font-medium text-slate-300 hover:border-slate-500"
             >
@@ -180,15 +187,15 @@ export function TodayPlan() {
           ) : (
             <button
               onClick={() => {
-                if (todayPlan) setActivePlan(todayPlan.id);
+                if (todayRecord) setActiveRecord(todayRecord.id);
                 if (template) startSession(template.id, 0);
-                navigate('/session');
+                setSessionPanelOpen(true);
               }}
               disabled={!canStart}
               className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 disabled:opacity-50"
             >
               <PlayCircle className="h-5 w-5" />
-              {todayPlan ? '开始今日训练' : '开始训练'}
+              {todayRecord ? '开始今日训练' : '开始训练'}
             </button>
           )}
           <Link
@@ -222,29 +229,35 @@ export function TodayPlan() {
                   : undefined
               }
               onStart={() => {
-                if (drillStatus(idx) === 'running' && session.templateId === template.id) {
-                  navigate('/session');
+                if ((drillStatus(idx) === 'running' || drillStatus(idx) === 'paused') && session.templateId === template.id) {
+                  if (session.status === 'paused') {
+                    resumeSession();
+                  }
+                  setSessionPanelOpen(true);
                 } else {
-                  if (todayPlan) setActivePlan(todayPlan.id);
+                  if (todayRecord) setActiveRecord(todayRecord.id);
                   startSession(template.id, idx);
-                  navigate('/session');
+                  setSessionPanelOpen(true);
                 }
+              }}
+              onPause={() => {
+                pauseSession();
               }}
               onSkip={() => {
                 if (session.templateId === template.id && session.status !== 'idle') {
                   skipToDrill(idx);
                 } else {
-                  if (todayPlan) setActivePlan(todayPlan.id);
+                  if (todayRecord) setActiveRecord(todayRecord.id);
                   startSession(template.id, idx);
-                  navigate('/session');
+                  setSessionPanelOpen(true);
                 }
               }}
             />
           ))}
 
           {/* Mark as done button when session finished */}
-          {todayPlan &&
-            session.templateId === todayPlan.templateId &&
+          {todayRecord &&
+            session.templateId === todayRecord.templateId &&
             session.status === 'finished' && (
               <button
                 onClick={handleFinishLast}

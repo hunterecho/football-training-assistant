@@ -35,7 +35,7 @@ export type PlanRow = {
   completed_at?: string | null;
 };
 
-export type TableName = 'users' | 'templates' | 'plans' | 'system_settings';
+export type TableName = 'users' | 'templates' | 'plans' | 'training_records' | 'system_settings';
 
 let client: SupabaseClient | null = null;
 

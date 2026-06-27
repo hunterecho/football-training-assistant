@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Template, SessionState, Cue, TrainingPlan, PlanStatus } from '@/types';
+import type { Template, SessionState, Cue, TrainingRecord, RecordStatus } from '@/types';
 import { defaultTemplate } from '@/data/defaultTemplate';
 import { uid } from '@/utils/duration';
 import { api } from '@/lib/api';
@@ -8,11 +8,12 @@ import { useAuthStore } from './authStore';
 
 type TrainingStore = {
   templates: Template[];
-  plans: TrainingPlan[];
+  records: TrainingRecord[];
   session: SessionState;
   activeTemplateId: string | null;
-  activePlanId: string | null;
+  activeRecordId: string | null;
   synced: boolean;
+  sessionPanelOpen: boolean;
 
   setTemplates: (t: Template[]) => void;
   addTemplate: (t: Template) => void;
@@ -21,13 +22,15 @@ type TrainingStore = {
   duplicateTemplate: (id: string) => void;
 
   setActiveTemplate: (id: string | null) => void;
-  setActivePlan: (id: string | null) => void;
+  setActiveRecord: (id: string | null) => void;
+  setSessionPanelOpen: (open: boolean) => void;
 
-  addPlan: (plan: Omit<TrainingPlan, 'id' | 'createdAt' | 'status'> & { status?: PlanStatus }) => string;
-  updatePlan: (id: string, patch: Partial<TrainingPlan>) => void;
-  removePlan: (id: string) => void;
-  completePlan: (id: string) => void;
-  getPlanByDate: (date: string) => TrainingPlan | undefined;
+  addRecord: (record: Omit<TrainingRecord, 'id' | 'createdAt'>) => string;
+  updateRecord: (id: string, patch: Partial<TrainingRecord>) => void;
+  removeRecord: (id: string) => void;
+  setRecords: (records: TrainingRecord[]) => void;
+  toggleRecordStatus: (id: string) => void;
+  getRecordByDate: (date: string) => TrainingRecord | undefined;
 
   startSession: (templateId: string, startIndex?: number) => void;
   pauseSession: () => void;
@@ -78,26 +81,32 @@ const mapTemplateFromServer = (t: any): Template => ({
   createdAt: t.created_at ? new Date(t.created_at).getTime() : Date.now(),
 });
 
-const mapPlanFromServer = (p: any): TrainingPlan => ({
-  id: p.id,
-  templateId: p.template_id,
-  title: p.title,
-  date: p.date,
-  note: p.note,
-  status: p.status ?? 'planned',
-  createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
-  completedAt: p.completed_at ? new Date(p.completed_at).getTime() : undefined,
+const mapRecordFromServer = (r: any): TrainingRecord => ({
+  id: r.id,
+  templateId: r.template_id,
+  title: r.title,
+  date: r.date,
+  status: r.status ?? 'planned',
+  startTime: r.start_time ? new Date(r.start_time).getTime() : undefined,
+  endTime: r.end_time ? new Date(r.end_time).getTime() : undefined,
+  durationSeconds: r.duration_seconds,
+  completedDrills: r.completed_drills,
+  totalDrills: r.total_drills,
+  note: r.note,
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+  completedAt: r.completed_at ? new Date(r.completed_at).getTime() : undefined,
 });
 
 export const useTrainingStore = create<TrainingStore>()(
   persist(
     (set, get) => ({
       templates: [defaultTemplate],
-      plans: [],
+      records: [],
       session: initialSession,
       activeTemplateId: defaultTemplate.id,
-      activePlanId: null,
+      activeRecordId: null,
       synced: false,
+      sessionPanelOpen: false,
 
       setTemplates: (t) => set({ templates: t }),
       addTemplate: (t) => {
@@ -132,8 +141,8 @@ export const useTrainingStore = create<TrainingStore>()(
           const next = s.templates.filter((t) => t.id !== id);
           const active =
             s.activeTemplateId === id ? next[0]?.id ?? null : s.activeTemplateId;
-          const plans = s.plans.filter((p) => p.templateId !== id);
-          return { templates: next, activeTemplateId: active, plans };
+          const records = s.records.filter((r) => r.templateId !== id);
+          return { templates: next, activeTemplateId: active, records };
         });
         const token = useAuthStore.getState().token;
         if (token) {
@@ -167,76 +176,96 @@ export const useTrainingStore = create<TrainingStore>()(
         }),
 
       setActiveTemplate: (id) => set({ activeTemplateId: id }),
-      setActivePlan: (id) => set({ activePlanId: id }),
+      setActiveRecord: (id) => set({ activeRecordId: id }),
+      setSessionPanelOpen: (open) => set({ sessionPanelOpen: open }),
 
-      addPlan: (plan) => {
-        const id = uid('plan');
-        const newPlan: TrainingPlan = {
+      addRecord: (record) => {
+        const id = uid('record');
+        const newRecord: TrainingRecord = {
           id,
-          templateId: plan.templateId,
-          title: plan.title,
-          date: plan.date,
-          note: plan.note,
-          status: plan.status ?? 'planned',
+          templateId: record.templateId,
+          title: record.title,
+          date: record.date,
+          status: record.status ?? 'planned',
+          startTime: record.startTime,
+          endTime: record.endTime,
+          durationSeconds: record.durationSeconds,
+          completedDrills: record.completedDrills,
+          totalDrills: record.totalDrills,
+          note: record.note,
           createdAt: Date.now(),
+          completedAt: record.completedAt,
         };
-        set((s) => ({ plans: [...s.plans, newPlan], activePlanId: id }));
+        set((s) => ({ records: [newRecord, ...s.records], activeRecordId: id }));
         const token = useAuthStore.getState().token;
         if (token) {
-          api.post('/plans', {
-            template_id: plan.templateId,
-            title: plan.title,
-            date: plan.date,
-            note: plan.note,
+          api.post('/records', {
+            template_id: record.templateId,
+            title: record.title,
+            date: record.date,
+            status: record.status,
+            start_time: record.startTime ? new Date(record.startTime).toISOString() : undefined,
+            end_time: record.endTime ? new Date(record.endTime).toISOString() : undefined,
+            duration_seconds: record.durationSeconds,
+            completed_drills: record.completedDrills,
+            total_drills: record.totalDrills,
+            note: record.note,
           });
         }
         return id;
       },
-      updatePlan: (id, patch) => {
+      updateRecord: (id, patch) => {
         set((s) => ({
-          plans: s.plans.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+          records: s.records.map((r) => (r.id === id ? { ...r, ...patch } : r)),
         }));
         const token = useAuthStore.getState().token;
         if (token) {
-          const p = get().plans.find((x) => x.id === id);
-          if (p) {
-            api.patch(`/plans/${id}`, {
-              title: p.title,
-              date: p.date,
-              note: p.note,
-              status: p.status,
-            });
+          const body: Record<string, unknown> = {};
+          if (patch.status) body.status = patch.status;
+          if (patch.date) body.date = patch.date;
+          if (patch.startTime !== undefined) body.start_time = new Date(patch.startTime).toISOString();
+          if (patch.endTime !== undefined) body.end_time = new Date(patch.endTime).toISOString();
+          if (patch.durationSeconds !== undefined) body.duration_seconds = patch.durationSeconds;
+          if (patch.completedDrills !== undefined) body.completed_drills = patch.completedDrills;
+          if (patch.totalDrills !== undefined) body.total_drills = patch.totalDrills;
+          if (patch.note !== undefined) body.note = patch.note;
+          if (patch.completedAt !== undefined) body.completed_at = new Date(patch.completedAt).toISOString();
+          if (Object.keys(body).length > 0) {
+            api.patch(`/records/${id}`, body);
           }
         }
       },
-      removePlan: (id) => {
+      removeRecord: (id) => {
         set((s) => {
-          const plans = s.plans.filter((p) => p.id !== id);
-          const activePlanId = s.activePlanId === id ? null : s.activePlanId;
-          return { plans, activePlanId };
+          const records = s.records.filter((r) => r.id !== id);
+          const activeRecordId = s.activeRecordId === id ? null : s.activeRecordId;
+          return { records, activeRecordId };
         });
         const token = useAuthStore.getState().token;
         if (token) {
-          api.delete(`/plans/${id}`);
+          api.delete(`/records/${id}`);
         }
       },
-      completePlan: (id) => {
-        set((s) => ({
-          plans: s.plans.map((p) =>
-            p.id === id
-              ? { ...p, status: 'completed' as PlanStatus, completedAt: Date.now() }
-              : p
-          ),
-        }));
-        const token = useAuthStore.getState().token;
-        if (token) {
-          api.patch(`/plans/${id}`, {
-            status: 'completed',
-            completed_at: new Date().toISOString(),
-          });
+      setRecords: (records) => set({ records }),
+      toggleRecordStatus: (id) => {
+        const record = get().records.find((r) => r.id === id);
+        if (!record) return;
+        const newStatus: RecordStatus = record.status === 'completed' ? 'in_progress' : 'completed';
+        const now = Date.now();
+        const newEndTime = newStatus === 'completed' ? now : undefined;
+        const newDuration = newStatus === 'completed' && record.startTime ? Math.round((now - record.startTime) / 1000) : record.durationSeconds;
+        get().updateRecord(id, {
+          status: newStatus,
+          endTime: newEndTime,
+          durationSeconds: newDuration,
+          completedAt: newStatus === 'completed' ? now : undefined,
+        });
+        const current = get();
+        if (current.activeRecordId === id) {
+          set({ activeRecordId: null, session: initialSession });
         }
       },
-      getPlanByDate: (date) => get().plans.find((p) => p.date === date),
+      getRecordByDate: (date) => get().records.find((r) => r.date === date),
 
       startSession: (templateId, startIndex = 0) => {
         const tpl = get().templates.find((t) => t.id === templateId);
@@ -364,28 +393,72 @@ export const useTrainingStore = create<TrainingStore>()(
       syncFromServer: async () => {
         const token = useAuthStore.getState().token;
         if (!token) return;
-        const [tplRes, planRes] = await Promise.all([
+        const [tplRes, recordRes] = await Promise.all([
           api.get<any>('/templates'),
-          api.get<any>('/plans'),
+          api.get<any>('/records'),
         ]);
         if (tplRes.data) {
           const list = (tplRes.data as any).templates ?? [];
           set((s) => ({ ...s, templates: list.map(mapTemplateFromServer) }));
         }
-        if (planRes.data) {
-          const list = (planRes.data as any).plans ?? [];
-          set((s) => ({ ...s, plans: list.map(mapPlanFromServer) }));
+        if (recordRes.data) {
+          const list = (recordRes.data as any).records ?? [];
+          set((s) => ({ ...s, records: list.map(mapRecordFromServer) }));
         }
         set({ synced: true });
+
+        const current = get();
+        if (current.session.status === 'idle') {
+          const inProgressRecord = current.records.find(
+            (r) => r.status === 'in_progress'
+          );
+          if (inProgressRecord && inProgressRecord.startTime && inProgressRecord.templateId) {
+            const tpl = current.templates.find(
+              (t) => t.id === inProgressRecord.templateId
+            );
+            if (tpl) {
+              const elapsed = (Date.now() - inProgressRecord.startTime) / 1000;
+              let remaining = 0;
+              let drillIndex = 0;
+              let accumulated = 0;
+              for (let i = 0; i < tpl.drills.length; i++) {
+                accumulated += tpl.drills[i].duration;
+                if (elapsed < accumulated) {
+                  drillIndex = i;
+                  remaining = accumulated - elapsed;
+                  break;
+                }
+              }
+              if (drillIndex >= tpl.drills.length) {
+                drillIndex = tpl.drills.length - 1;
+                remaining = 0;
+              }
+              set({
+                session: {
+                  ...initialSession,
+                  templateId: tpl.id,
+                  drillIndex,
+                  remaining,
+                  status: 'paused',
+                  startedAt: inProgressRecord.startTime,
+                  lastTickTs: null,
+                  drillStartedAt: null,
+                },
+                activeRecordId: inProgressRecord.id,
+              });
+            }
+          }
+        }
       },
     }),
     {
       name: 'coach-train-v2:training',
       partialize: (state) => ({
         templates: state.templates,
-        plans: state.plans,
+        records: state.records,
         activeTemplateId: state.activeTemplateId,
-        activePlanId: state.activePlanId,
+        activeRecordId: state.activeRecordId,
+        session: state.session.status !== 'idle' ? state.session : initialSession,
       }),
     }
   )

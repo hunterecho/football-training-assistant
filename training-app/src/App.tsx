@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { BottomNav } from '@/components/Layout/BottomNav';
+import { FloatingSession } from '@/components/Layout/FloatingSession';
 import { TodayPlan } from '@/pages/TodayPlan';
-import { SessionTimer } from '@/pages/SessionTimer';
 import { Plans } from '@/pages/Plans';
 import { TemplateManager } from '@/pages/TemplateManager';
 import { ImportPlan } from '@/pages/ImportPlan';
@@ -34,15 +34,7 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<RequireAuth><TodayPlan /></RequireAuth>} />
-            <Route
-              path="/session"
-              element={
-                <RequireAuth>
-                  <SessionTimer onBack={() => window.history.back()} />
-                </RequireAuth>
-              }
-            />
-            <Route path="/plans" element={<RequireAuth><Plans /></RequireAuth>} />
+            <Route path="/schedule" element={<RequireAuth><Plans /></RequireAuth>} />
             <Route path="/templates" element={<RequireAuth><TemplateManager /></RequireAuth>} />
             <Route path="/import" element={<RequireAuth><ImportPlan /></RequireAuth>} />
             <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
@@ -50,6 +42,7 @@ function App() {
           </Routes>
         </div>
         {user && <BottomNav />}
+        {user && <FloatingSession />}
       </Router>
       <audio id="audio-context-bootstrap" className="hidden" aria-hidden />
       <span data-settings-ready={String(settings.speechEnabled)} className="hidden" aria-hidden />

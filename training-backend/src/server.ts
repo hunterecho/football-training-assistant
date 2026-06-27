@@ -5,6 +5,7 @@ import { config } from './config/index';
 import { authRoutes } from './routes/auth';
 import { templateRoutes } from './routes/templates';
 import { planRoutes } from './routes/plans';
+import { recordRoutes } from './routes/records';
 import { userRoutes } from './routes/users';
 import { settingsRoutes } from './routes/settings';
 
@@ -24,6 +25,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/templates', templateRoutes);
 app.use('/api/plans', planRoutes);
+app.use('/api/records', recordRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
 
