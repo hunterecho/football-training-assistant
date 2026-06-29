@@ -11,7 +11,21 @@ import { settingsRoutes } from './routes/settings';
 
 const app = express();
 
-app.use(cors({ origin: config.corsOrigin, credentials: true }));
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'https://hunterecho.github.io',
+];
+app.use(cors({ 
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true 
+}));
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health', (_req, res) => {
