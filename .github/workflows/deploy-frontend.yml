@@ -39,6 +39,9 @@ jobs:
       - name: Build
         run: cd training-app && VITE_DEPLOY_TARGET=gh-pages VITE_API_URL=https://football-training-assistant.onrender.com/api npm run build
 
+      - name: Copy index.html to 404.html for SPA routing
+        run: cd training-app && cp dist/index.html dist/404.html
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
