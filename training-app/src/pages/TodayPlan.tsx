@@ -9,16 +9,17 @@ import {
   Dumbbell,
   ChevronRight,
   CalendarCheck,
+  Plus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function TodayPlan() {
   const templates = useTrainingStore((s) => s.templates);
+  const plans = useTrainingStore((s) => s.plans);
   const records = useTrainingStore((s) => s.records);
-  const activeId = useTrainingStore((s) => s.activeTemplateId);
   const session = useTrainingStore((s) => s.session);
-  const setActiveTemplate = useTrainingStore((s) => s.setActiveTemplate);
   const setActiveRecord = useTrainingStore((s) => s.setActiveRecord);
+  const addRecord = useTrainingStore((s) => s.addRecord);
   const startSession = useTrainingStore((s) => s.startSession);
   const resumeSession = useTrainingStore((s) => s.resumeSession);
   const pauseSession = useTrainingStore((s) => s.pauseSession);
@@ -35,12 +36,13 @@ export function TodayPlan() {
   });
   const todayKey = toDateKey(today);
 
-  const todayRecord = records.find((r) => r.date === todayKey);
+  const todayPlan = plans.find((p) => p.date === todayKey && p.status === 'planned');
+  const todayRecord = records.find((r) => r.planId === todayPlan?.id && r.status !== 'completed');
 
   const template = useMemo(() => {
-    const id = todayRecord?.templateId ?? activeId;
-    return templates.find((t) => t.id === id) ?? templates[0] ?? null;
-  }, [templates, activeId, todayRecord]);
+    if (!todayPlan) return null;
+    return templates.find((t) => t.id === todayPlan.templateId) ?? null;
+  }, [templates, todayPlan]);
 
   const totalSeconds = template?.drills.reduce((a, d) => a + d.duration, 0) ?? 0;
   const currentIndex =
@@ -64,7 +66,6 @@ export function TodayPlan() {
     return 'idle';
   };
 
-  const canStart = template && session.templateId !== template.id;
   const hasActive =
     template && session.templateId === template.id && session.status !== 'idle';
 
@@ -89,29 +90,31 @@ export function TodayPlan() {
             </div>
             <h1 className="mt-0.5 text-2xl font-bold text-white">{dateStr}</h1>
           </div>
-          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-right">
-            <div className="text-[11px] uppercase tracking-wider text-emerald-400">
-              预计时长
+          {template && (
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-right">
+              <div className="text-[11px] uppercase tracking-wider text-emerald-400">
+                预计时长
+              </div>
+              <div className="text-lg font-semibold text-white">
+                {totalDuration(totalSeconds)}
+              </div>
             </div>
-            <div className="text-lg font-semibold text-white">
-              {totalDuration(totalSeconds)}
-            </div>
-          </div>
+          )}
         </div>
 
-        {todayRecord && todayRecord.status === 'planned' && (
+        {todayPlan && template && (
           <div className="mt-4 flex items-start gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3">
             <CalendarCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-white">
-                今日计划：{todayRecord.title}
+                今日计划：{todayPlan.title}
               </div>
               <div className="mt-0.5 flex items-center gap-2 text-xs text-emerald-300">
-                <span>来自模板「{template?.name}」</span>
+                <span>来自模板「{template.name}」</span>
               </div>
-              {todayRecord.note && (
+              {todayPlan.note && (
                 <div className="mt-1 text-xs text-slate-400">
-                  📝 {todayRecord.note}
+                  📝 {todayPlan.note}
                 </div>
               )}
             </div>
@@ -121,35 +124,6 @@ export function TodayPlan() {
             >
               管理
             </Link>
-          </div>
-        )}
-
-        {/* Template selector (only shown when no plan for today and no active session) */}
-        {!todayRecord && !hasActive && (
-          <div className="mt-4">
-            <label className="text-xs text-slate-400">当前模板</label>
-            <div className="mt-1.5 flex gap-2 overflow-x-auto pb-2">
-              {templates.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setActiveTemplate(t.id)}
-                  className={cn(
-                    'shrink-0 rounded-full border px-3 py-1.5 text-sm transition-colors',
-                    t.id === template?.id
-                      ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300'
-                      : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500'
-                  )}
-                >
-                  {t.name}
-                </button>
-              ))}
-              <Link
-                to="/templates"
-                className="shrink-0 rounded-full border border-dashed border-slate-700 px-3 py-1.5 text-sm text-slate-400 hover:border-slate-500 hover:text-slate-200"
-              >
-                + 管理
-              </Link>
-            </div>
           </div>
         )}
 
@@ -184,19 +158,40 @@ export function TodayPlan() {
             >
               重新开始
             </button>
-          ) : (
+          ) : todayPlan && template ? (
             <button
               onClick={() => {
-                if (todayRecord) setActiveRecord(todayRecord.id);
-                if (template) startSession(template.id, 0);
+                if (todayRecord) {
+                  setActiveRecord(todayRecord.id);
+                } else {
+                  const newRecordId = addRecord({
+                    planId: todayPlan.id,
+                    templateId: template.id,
+                    userId: '',
+                    title: todayPlan.title,
+                    status: 'in_progress',
+                    startTime: Date.now(),
+                    totalDrills: template.drills.length,
+                    completedDrills: 0,
+                  });
+                  setActiveRecord(newRecordId);
+                }
+                startSession(template.id, 0);
                 setSessionPanelOpen(true);
               }}
-              disabled={!canStart}
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 disabled:opacity-50"
+              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400"
             >
               <PlayCircle className="h-5 w-5" />
-              {todayRecord ? '开始今日训练' : '开始训练'}
+              开始今日训练
             </button>
+          ) : (
+            <Link
+              to="/schedule"
+              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400"
+            >
+              <Plus className="h-5 w-5" />
+              创建训练计划
+            </Link>
           )}
           <Link
             to="/import"
@@ -208,8 +203,8 @@ export function TodayPlan() {
         </div>
       </div>
 
-      {/* Drills */}
-      {template ? (
+      {/* Drills or No Plan Message */}
+      {todayPlan && template ? (
         <div className="mt-6 space-y-3 px-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-500">
@@ -255,7 +250,6 @@ export function TodayPlan() {
             />
           ))}
 
-          {/* Mark as done button when session finished */}
           {todayRecord &&
             session.templateId === todayRecord.templateId &&
             session.status === 'finished' && (
@@ -267,7 +261,23 @@ export function TodayPlan() {
               </button>
             )}
         </div>
-      ) : (
+      ) : !todayPlan && templates.length > 0 ? (
+        <div className="mx-4 mt-8 rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 p-8 text-center">
+          <CalendarCheck className="mx-auto h-10 w-10 text-slate-500" />
+          <div className="mt-3 text-slate-300">今天还没有训练计划</div>
+          <div className="mt-1 text-xs text-slate-500">
+            创建一个训练计划来开始今天的训练
+          </div>
+          <Link
+            to="/schedule"
+            className="mt-4 inline-flex items-center gap-1 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+          >
+            <Plus className="h-4 w-4" />
+            创建计划
+            <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
+      ) : !todayPlan && templates.length === 0 ? (
         <div className="mx-4 mt-8 rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 p-8 text-center">
           <div className="mb-2 text-slate-300">还没有训练模板</div>
           <Link
@@ -278,7 +288,7 @@ export function TodayPlan() {
             <ChevronRight className="h-4 w-4" />
           </Link>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

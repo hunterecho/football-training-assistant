@@ -14,6 +14,7 @@ type AuthState = {
   token: string | null;
   initialized: boolean;
   login: (nickname: string) => Promise<{ ok: boolean; error?: string }>;
+  wechatLogin: (code: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 };
@@ -29,6 +30,16 @@ export const useAuthStore = create<AuthState>()(
         const res = await api.post<{ token: string; user: AuthUser }>(
           '/auth/mock',
           { nickname }
+        );
+        if (res.error) return { ok: false, error: res.error };
+        set({ user: res.data!.user, token: res.data!.token });
+        return { ok: true };
+      },
+
+      wechatLogin: async (code) => {
+        const res = await api.post<{ token: string; user: AuthUser }>(
+          '/auth/wechat',
+          { code }
         );
         if (res.error) return { ok: false, error: res.error };
         set({ user: res.data!.user, token: res.data!.token });

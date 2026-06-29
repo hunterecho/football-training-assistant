@@ -4,7 +4,6 @@ import { dbSelect, dbUpsertUser } from '../db/client';
 
 const router = Router();
 
-// POST /api/auth/mock — simple nickname-based login for local/dev
 router.post('/mock', async (req, res) => {
   try {
     const { nickname } = req.body as { nickname?: string };
@@ -34,7 +33,6 @@ router.post('/mock', async (req, res) => {
   }
 });
 
-// GET /api/auth/me — return current user from token
 router.get('/me', authRequired, async (req, res) => {
   try {
     const rows = await dbSelect('users', 'id', req.auth!.userId);
@@ -50,11 +48,69 @@ router.get('/me', authRequired, async (req, res) => {
   }
 });
 
-// POST /api/auth/wechat — placeholder for future WeChat login
-router.post('/wechat', async (_req, res) => {
-  res.status(501).json({
-    error: 'WeChat login is not yet implemented. Use /mock for development.',
-  });
+router.post('/wechat', async (req, res) => {
+  try {
+    const { code } = req.body as { code?: string };
+    if (!code) {
+      res.status(400).json({ error: 'code is required' });
+      return;
+    }
+
+    let openid: string;
+    let nickname: string;
+
+    if (code.startsWith('mock_wechat_code_')) {
+      openid = 'wx_' + code.replace('mock_wechat_code_', '');
+      nickname = '微信用户_' + openid.slice(-8);
+    } else {
+      const appId = process.env.WECHAT_APP_ID;
+      const appSecret = process.env.WECHAT_APP_SECRET;
+      
+      if (!appId || !appSecret) {
+        res.status(500).json({ error: 'WeChat app config not set' });
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `https://api.weixin.qq.com/sns/jscode2session?appid=${appId}&secret=${appSecret}&js_code=${code}&grant_type=authorization_code`
+        );
+        const data = await response.json() as { errcode?: number; errmsg?: string; openid?: string };
+        
+        if (data.errcode) {
+          res.status(400).json({ error: data.errmsg || 'WeChat login failed' });
+          return;
+        }
+        
+        openid = data.openid!;
+        nickname = '微信用户_' + openid.slice(-8);
+      } catch {
+        res.status(500).json({ error: 'Failed to connect to WeChat API' });
+        return;
+      }
+    }
+
+    const existing = await dbSelect('users', 'id', openid);
+    const user =
+      (existing[0] as any) ??
+      (await dbUpsertUser({
+        id: openid,
+        nickname,
+        role: 'player',
+        created_at: new Date().toISOString(),
+      }));
+
+    const token = signToken({
+      userId: (user as any).id ?? openid,
+      nickname: (user as any).nickname ?? nickname,
+      role: (user as any).role ?? 'player',
+    });
+
+    res.json({ token, user });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
 });
 
 export const authRoutes = router;

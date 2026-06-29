@@ -3,14 +3,37 @@ import { authRequired } from '../middleware/auth';
 import { dbInsert, dbSelect, dbUpdate, dbDelete } from '../db/client';
 
 const router = Router();
+
+router.get('/share/:planId', async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const plans = await dbSelect('plans', 'id', planId);
+    if (plans.length === 0) {
+      res.status(404).json({ error: 'Plan not found' });
+      return;
+    }
+    const plan = plans[0] as { template_id: string };
+    const templates = await dbSelect('templates', 'id', plan.template_id);
+    if (templates.length === 0) {
+      res.status(404).json({ error: 'Template not found' });
+      return;
+    }
+    const template = templates[0];
+    res.json({ plan, template });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
 router.use(authRequired);
 
 router.get('/', async (req, res) => {
   try {
     const records = await dbSelect('training_records', 'user_id', req.auth!.userId, req.auth!.userId);
     const sorted = records.sort((a: any, b: any) => {
-      const aTime = new Date(a.start_time || a.date || a.created_at).getTime();
-      const bTime = new Date(b.start_time || b.date || b.created_at).getTime();
+      const aTime = new Date(a.start_time || a.created_at).getTime();
+      const bTime = new Date(b.start_time || b.created_at).getTime();
       return bTime - aTime;
     });
     res.json({ records: sorted });
@@ -22,10 +45,10 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { template_id, title, date, status, start_time, end_time, duration_seconds, completed_drills, total_drills, note } = req.body as {
+    const { plan_id, template_id, title, status, start_time, end_time, duration_seconds, completed_drills, total_drills, note } = req.body as {
+      plan_id?: string;
       template_id?: string;
       title?: string;
-      date?: string;
       status?: string;
       start_time?: string;
       end_time?: string;
@@ -42,9 +65,9 @@ router.post('/', async (req, res) => {
       'training_records',
       {
         user_id: req.auth!.userId,
+        plan_id,
         template_id,
         title,
-        date,
         status: status ?? 'planned',
         start_time,
         end_time,

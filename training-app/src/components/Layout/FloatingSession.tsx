@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTrainingStore } from '@/store/trainingStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useAuthStore } from '@/store/authStore';
 import { useSpeech } from '@/hooks/useSpeech';
 import { useBeep } from '@/hooks/useBeep';
 import { useWakeLock } from '@/hooks/useWakeLock';
@@ -24,6 +25,7 @@ export function FloatingSession() {
   const session = useTrainingStore((s) => s.session);
   const records = useTrainingStore((s) => s.records);
   const activeRecordId = useTrainingStore((s) => s.activeRecordId);
+  const activePlanId = useTrainingStore((s) => s.activePlanId);
   const activeTemplateId = useTrainingStore((s) => s.activeTemplateId);
   const templates = useTrainingStore((s) => s.templates);
   const tickRaw = useTrainingStore((s) => s.tick);
@@ -119,7 +121,9 @@ export function FloatingSession() {
           }
         }
         const recordId = addRecord({
+          planId: activePlanId ?? undefined,
           templateId: template.id,
+          userId: useAuthStore.getState().user?.id ?? 'unknown',
           title: template.name,
           status: 'in_progress',
           startTime: session.startedAt,

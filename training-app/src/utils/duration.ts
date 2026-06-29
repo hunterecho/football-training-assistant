@@ -5,6 +5,10 @@ export function formatDuration(seconds: number): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
+export function formatTime(seconds: number): string {
+  return formatDuration(seconds);
+}
+
 export function formatDurationChinese(seconds: number): string {
   if (seconds <= 0) return '0 秒';
   const m = Math.floor(seconds / 60);
@@ -17,16 +21,12 @@ export function formatDurationChinese(seconds: number): string {
 export function parseDuration(text: string): number | null {
   const t = text.trim();
   if (!t) return null;
-  // 1 分 30 秒 / 1分30秒
   const zhMixed = t.match(/(\d+)\s*分\s*(\d+)\s*秒/);
   if (zhMixed) return parseInt(zhMixed[1]) * 60 + parseInt(zhMixed[2]);
-  // 5 分钟 / 5 分
   const zhMin = t.match(/(\d+(?:\.\d+)?)\s*(?:分钟|分|minute|min|m)\b/i);
   if (zhMin) return Math.round(parseFloat(zhMin[1]) * 60);
-  // 30 秒
   const zhSec = t.match(/(\d+(?:\.\d+)?)\s*(?:秒钟|秒|second|sec|s)\b/i);
   if (zhSec) return Math.round(parseFloat(zhSec[1]));
-  // plain number => seconds
   const num = t.match(/^\s*(\d+(?:\.\d+)?)\s*$/);
   if (num) return Math.round(parseFloat(num[1]));
   return null;

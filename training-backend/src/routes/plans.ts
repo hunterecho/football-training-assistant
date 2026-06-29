@@ -1,14 +1,35 @@
-import { Router } from 'express';
+import express from 'express';
 import { authRequired } from '../middleware/auth';
-import { dbInsert, dbSelect, dbUpdate, dbDelete } from '../db/client';
+import { dbSelect, dbInsert, dbUpdate, dbDelete } from '../db/client';
 
-const router = Router();
+const router = express.Router();
+
 router.use(authRequired);
 
 router.get('/', async (req, res) => {
   try {
-    const plans = await dbSelect('plans', 'user_id', req.auth!.userId, req.auth!.userId);
+    const plans = await dbSelect('plans', 'user_id', req.auth!.userId);
+    plans.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     res.json({ plans });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const plans = await dbSelect('plans', 'id', id);
+    if (plans.length === 0) {
+      res.status(404).json({ error: 'Plan not found' });
+      return;
+    }
+    if ((plans[0] as any).user_id !== req.auth!.userId) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+    res.json({ plan: plans[0] });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
@@ -17,30 +38,20 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { template_id, title, date, note, status } = req.body as {
-      template_id?: string;
-      title?: string;
-      date?: string;
-      note?: string;
-      status?: string;
-    };
-    if (!template_id || !title || !date) {
-      res.status(400).json({ error: 'template_id, title, date are required' });
+    const { template_id, title, date, status, note } = req.body;
+    if (!template_id || !title) {
+      res.status(400).json({ error: 'Missing required fields' });
       return;
     }
-    const plan = await dbInsert(
-      'plans',
-      {
-        user_id: req.auth!.userId,
-        template_id,
-        title,
-        date,
-        note,
-        status: status ?? 'planned',
-      },
-      req.auth!.userId
-    );
-    res.status(201).json({ plan });
+    const plan = await dbInsert('plans', {
+      user_id: req.auth!.userId,
+      template_id,
+      title,
+      date,
+      status: status || 'planned',
+      note,
+    });
+    res.json({ plan });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
@@ -49,8 +60,24 @@ router.post('/', async (req, res) => {
 
 router.patch('/:id', async (req, res) => {
   try {
-    const plan = await dbUpdate('plans', req.params.id, req.body, req.auth!.userId);
-    res.json({ plan });
+    const { id } = req.params;
+    const plans = await dbSelect('plans', 'id', id);
+    if (plans.length === 0) {
+      res.status(404).json({ error: 'Plan not found' });
+      return;
+    }
+    if ((plans[0] as any).user_id !== req.auth!.userId) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+    const { status, date, note, completed_at } = req.body;
+    const updates: Record<string, unknown> = {};
+    if (status !== undefined) updates.status = status;
+    if (date !== undefined) updates.date = date;
+    if (note !== undefined) updates.note = note;
+    if (completed_at !== undefined) updates.completed_at = completed_at;
+    const updated = await dbUpdate('plans', id, updates);
+    res.json({ plan: updated });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
@@ -59,7 +86,17 @@ router.patch('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    await dbDelete('plans', req.params.id, req.auth!.userId);
+    const { id } = req.params;
+    const plans = await dbSelect('plans', 'id', id);
+    if (plans.length === 0) {
+      res.status(404).json({ error: 'Plan not found' });
+      return;
+    }
+    if ((plans[0] as any).user_id !== req.auth!.userId) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+    await dbDelete('plans', id);
     res.json({ ok: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

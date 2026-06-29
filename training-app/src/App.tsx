@@ -7,6 +7,7 @@ import { TemplateManager } from '@/pages/TemplateManager';
 import { ImportPlan } from '@/pages/ImportPlan';
 import { Settings } from '@/pages/Settings';
 import { Login } from '@/pages/Login';
+import { ShareDetail } from '@/pages/ShareDetail';
 import { UserMenu } from '@/components/Layout/UserMenu';
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -29,10 +30,11 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
       <Router basename={ROUTER_BASENAME}>
-        {user && <UserMenu />}
+        {user && !window.location.pathname.startsWith('/share/') && <UserMenu />}
         <div className="mx-auto min-h-screen w-full">
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/share/:planId" element={<ShareDetail />} />
             <Route path="/" element={<RequireAuth><TodayPlan /></RequireAuth>} />
             <Route path="/schedule" element={<RequireAuth><Plans /></RequireAuth>} />
             <Route path="/templates" element={<RequireAuth><TemplateManager /></RequireAuth>} />
@@ -41,8 +43,8 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
-        {user && <BottomNav />}
-        {user && <FloatingSession />}
+        {user && !window.location.pathname.startsWith('/share/') && <BottomNav />}
+        {user && !window.location.pathname.startsWith('/share/') && <FloatingSession />}
       </Router>
       <audio id="audio-context-bootstrap" className="hidden" aria-hidden />
       <span data-settings-ready={String(settings.speechEnabled)} className="hidden" aria-hidden />

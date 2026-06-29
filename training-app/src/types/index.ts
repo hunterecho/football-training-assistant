@@ -1,4 +1,4 @@
-export type CueTrigger = 'start' | 'end' | 'interval' | 'periodic';
+export type CueTrigger = 'start' | 'end' | 'interval' | 'periodic' | 'timer';
 
 export type Cue = {
   id: string;
@@ -23,22 +23,36 @@ export type Template = {
   createdAt: number;
 };
 
+export type PlanStatus = 'planned' | 'completed' | 'skipped';
+
+export type TrainingPlan = {
+  id: string;
+  templateId: string;
+  title: string;
+  date?: string;
+  status: PlanStatus;
+  note?: string;
+  createdAt: number;
+  completedAt?: number;
+};
+
 export type RecordStatus = 'planned' | 'in_progress' | 'completed' | 'skipped';
 
 export type TrainingRecord = {
   id: string;
+  planId: string;
   templateId: string;
+  userId: string;
   title: string;
-  date?: string; // 计划日期（仅 planned 状态有）
   status: RecordStatus;
-  startTime?: number; // 训练开始时间（in_progress/completed 状态有）
-  endTime?: number; // 训练结束时间（completed 状态有）
-  durationSeconds?: number; // 训练时长（in_progress/completed 状态有）
-  completedDrills?: number; // 已完成环节数（in_progress/completed 状态有）
-  totalDrills?: number; // 总环节数（in_progress/completed 状态有）
+  startTime?: number;
+  endTime?: number;
+  durationSeconds?: number;
+  completedDrills?: number;
+  totalDrills?: number;
   note?: string;
   createdAt: number;
-  completedAt?: number; // 计划完成时间（completed 状态有）
+  completedAt?: number;
 };
 
 export type SessionStatus = 'idle' | 'running' | 'paused' | 'finished';

@@ -21,6 +21,7 @@ export function useSpeech(options: UseSpeechOptions) {
   const speakRef = useRef<(text: string) => void>(() => {});
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [lastError, setLastError] = useState<string>('');
+  const [speaking, setSpeaking] = useState(false);
 
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
   useEffect(() => { rateRef.current = rate; }, [rate]);
@@ -56,6 +57,7 @@ export function useSpeech(options: UseSpeechOptions) {
       queueRef.current = [];
       try { window.speechSynthesis.cancel(); } catch { /* noop */ }
       speakingRef.current = false;
+      setSpeaking(false);
       pausedRef.current = false;
     }
   }, [enabled, supported]);
@@ -76,7 +78,6 @@ export function useSpeech(options: UseSpeechOptions) {
 
       const synth = window.speechSynthesis;
 
-      // Chrome bug: wake up the engine with a tiny resume() call.
       if (!synth.speaking && !synth.paused) {
         try { synth.resume(); } catch { /* noop */ }
       }
@@ -88,9 +89,13 @@ export function useSpeech(options: UseSpeechOptions) {
       const v = pickVoice();
       if (v) u.voice = v;
 
-      u.onstart = () => { speakingRef.current = true; };
+      u.onstart = () => { 
+        speakingRef.current = true; 
+        setSpeaking(true);
+      };
       u.onend = () => {
         speakingRef.current = false;
+        setSpeaking(false);
         if (!enabledRef.current || pausedRef.current) return;
         const next = queueRef.current.shift();
         if (next) speakRef.current(next);
@@ -98,6 +103,7 @@ export function useSpeech(options: UseSpeechOptions) {
       u.onerror = (e) => {
         if (e.error === 'canceled' || e.error === 'interrupted') {
           speakingRef.current = false;
+          setSpeaking(false);
           if (!enabledRef.current || pausedRef.current) return;
           const next = queueRef.current.shift();
           if (next) speakRef.current(next);
@@ -105,23 +111,25 @@ export function useSpeech(options: UseSpeechOptions) {
         }
         setLastError(`speech error: ${e.error}`);
         speakingRef.current = false;
+        setSpeaking(false);
         if (!enabledRef.current || pausedRef.current) return;
         const next = queueRef.current.shift();
         if (next) speakRef.current(next);
       };
 
       speakingRef.current = true;
+      setSpeaking(true);
       try {
         synth.speak(u);
       } catch (err) {
         setLastError(`speak failed: ${String(err)}`);
         speakingRef.current = false;
+        setSpeaking(false);
       }
     },
     [supported, pickVoice]
   );
 
-  // Keep speakRef in sync so closures can call the latest speak function.
   useEffect(() => {
     speakRef.current = speak;
   }, [speak]);
@@ -147,6 +155,16 @@ export function useSpeech(options: UseSpeechOptions) {
     queueRef.current = [];
     try { window.speechSynthesis.cancel(); } catch { /* noop */ }
     speakingRef.current = false;
+    setSpeaking(false);
+    pausedRef.current = false;
+  }, [supported]);
+
+  const stop = useCallback(() => {
+    if (!supported) return;
+    queueRef.current = [];
+    try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+    speakingRef.current = false;
+    setSpeaking(false);
     pausedRef.current = false;
   }, [supported]);
 
@@ -171,6 +189,6 @@ export function useSpeech(options: UseSpeechOptions) {
     lastError,
   };
 
-  return { speak, enqueue, clear, pause, resume, supported, debug };
+  return { speak, enqueue, clear, pause, resume, stop, speaking, supported, debug };
 }
 

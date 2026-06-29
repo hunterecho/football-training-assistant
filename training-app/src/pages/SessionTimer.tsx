@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTrainingStore } from '@/store/trainingStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useAuthStore } from '@/store/authStore';
 import { useSpeech } from '@/hooks/useSpeech';
 import { useBeep } from '@/hooks/useBeep';
 import { useWakeLock } from '@/hooks/useWakeLock';
@@ -19,6 +20,7 @@ import { cn } from '@/lib/utils';
 
 export function SessionTimer({ onBack }: { onBack?: () => void }) {
   const activeId = useTrainingStore((s) => s.activeTemplateId);
+  const activePlanId = useTrainingStore((s) => s.activePlanId);
   const templates = useTrainingStore((s) => s.templates);
   const session = useTrainingStore((s) => s.session);
   const records = useTrainingStore((s) => s.records);
@@ -123,9 +125,10 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
             return;
           }
         }
-        // Otherwise, create a new record (from template directly)
         const recordId = addRecord({
+          planId: activePlanId ?? undefined,
           templateId: template.id,
+          userId: useAuthStore.getState().user?.id ?? 'unknown',
           title: template.name,
           status: 'in_progress',
           startTime: session.startedAt,

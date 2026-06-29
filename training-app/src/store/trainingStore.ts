@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Template, SessionState, Cue, TrainingRecord, RecordStatus } from '@/types';
+import type { Template, SessionState, Cue, TrainingRecord, TrainingPlan, RecordStatus, PlanStatus } from '@/types';
 import { defaultTemplate } from '@/data/defaultTemplate';
 import { uid } from '@/utils/duration';
 import { api } from '@/lib/api';
@@ -8,9 +8,11 @@ import { useAuthStore } from './authStore';
 
 type TrainingStore = {
   templates: Template[];
+  plans: TrainingPlan[];
   records: TrainingRecord[];
   session: SessionState;
   activeTemplateId: string | null;
+  activePlanId: string | null;
   activeRecordId: string | null;
   synced: boolean;
   sessionPanelOpen: boolean;
@@ -22,15 +24,22 @@ type TrainingStore = {
   duplicateTemplate: (id: string) => void;
 
   setActiveTemplate: (id: string | null) => void;
+  setActivePlan: (id: string | null) => void;
   setActiveRecord: (id: string | null) => void;
   setSessionPanelOpen: (open: boolean) => void;
+
+  addPlan: (plan: Omit<TrainingPlan, 'id' | 'createdAt'>) => string;
+  updatePlan: (id: string, patch: Partial<TrainingPlan>) => void;
+  removePlan: (id: string) => void;
+  setPlans: (plans: TrainingPlan[]) => void;
+  togglePlanStatus: (id: string) => void;
+  getPlanByDate: (date: string) => TrainingPlan | undefined;
 
   addRecord: (record: Omit<TrainingRecord, 'id' | 'createdAt'>) => string;
   updateRecord: (id: string, patch: Partial<TrainingRecord>) => void;
   removeRecord: (id: string) => void;
   setRecords: (records: TrainingRecord[]) => void;
   toggleRecordStatus: (id: string) => void;
-  getRecordByDate: (date: string) => TrainingRecord | undefined;
 
   startSession: (templateId: string, startIndex?: number) => void;
   pauseSession: () => void;
@@ -44,6 +53,7 @@ type TrainingStore = {
   tick: (nowTs: number) => void;
 
   syncFromServer: () => Promise<void>;
+  fetchSharePlan: (planId: string) => Promise<{ plan: TrainingPlan; template: Template } | null>;
 };
 
 const initialSession: SessionState = {
@@ -81,12 +91,24 @@ const mapTemplateFromServer = (t: any): Template => ({
   createdAt: t.created_at ? new Date(t.created_at).getTime() : Date.now(),
 });
 
+const mapPlanFromServer = (p: any): TrainingPlan => ({
+  id: p.id,
+  templateId: p.template_id,
+  title: p.title,
+  date: p.date,
+  status: (p.status ?? 'planned') as PlanStatus,
+  note: p.note,
+  createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
+  completedAt: p.completed_at ? new Date(p.completed_at).getTime() : undefined,
+});
+
 const mapRecordFromServer = (r: any): TrainingRecord => ({
   id: r.id,
+  planId: r.plan_id,
   templateId: r.template_id,
+  userId: r.user_id,
   title: r.title,
-  date: r.date,
-  status: r.status ?? 'planned',
+  status: (r.status ?? 'planned') as RecordStatus,
   startTime: r.start_time ? new Date(r.start_time).getTime() : undefined,
   endTime: r.end_time ? new Date(r.end_time).getTime() : undefined,
   durationSeconds: r.duration_seconds,
@@ -101,9 +123,11 @@ export const useTrainingStore = create<TrainingStore>()(
   persist(
     (set, get) => ({
       templates: [defaultTemplate],
+      plans: [],
       records: [],
       session: initialSession,
       activeTemplateId: defaultTemplate.id,
+      activePlanId: null,
       activeRecordId: null,
       synced: false,
       sessionPanelOpen: false,
@@ -141,8 +165,9 @@ export const useTrainingStore = create<TrainingStore>()(
           const next = s.templates.filter((t) => t.id !== id);
           const active =
             s.activeTemplateId === id ? next[0]?.id ?? null : s.activeTemplateId;
+          const plans = s.plans.filter((p) => p.templateId !== id);
           const records = s.records.filter((r) => r.templateId !== id);
-          return { templates: next, activeTemplateId: active, records };
+          return { templates: next, activeTemplateId: active, plans, records };
         });
         const token = useAuthStore.getState().token;
         if (token) {
@@ -176,16 +201,83 @@ export const useTrainingStore = create<TrainingStore>()(
         }),
 
       setActiveTemplate: (id) => set({ activeTemplateId: id }),
+      setActivePlan: (id) => set({ activePlanId: id }),
       setActiveRecord: (id) => set({ activeRecordId: id }),
       setSessionPanelOpen: (open) => set({ sessionPanelOpen: open }),
+
+      addPlan: (plan) => {
+        const id = uid('plan');
+        const newPlan: TrainingPlan = {
+          id,
+          templateId: plan.templateId,
+          title: plan.title,
+          date: plan.date,
+          status: plan.status ?? 'planned',
+          note: plan.note,
+          createdAt: Date.now(),
+          completedAt: plan.completedAt,
+        };
+        set((s) => ({ plans: [newPlan, ...s.plans], activePlanId: id }));
+        const token = useAuthStore.getState().token;
+        if (token) {
+          api.post('/plans', {
+            template_id: plan.templateId,
+            title: plan.title,
+            date: plan.date,
+            status: plan.status,
+            note: plan.note,
+          });
+        }
+        return id;
+      },
+      updatePlan: (id, patch) => {
+        set((s) => ({
+          plans: s.plans.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+        }));
+        const token = useAuthStore.getState().token;
+        if (token) {
+          const body: Record<string, unknown> = {};
+          if (patch.status) body.status = patch.status;
+          if (patch.date) body.date = patch.date;
+          if (patch.note !== undefined) body.note = patch.note;
+          if (patch.completedAt !== undefined) body.completed_at = new Date(patch.completedAt).toISOString();
+          if (Object.keys(body).length > 0) {
+            api.patch(`/plans/${id}`, body);
+          }
+        }
+      },
+      removePlan: (id) => {
+        set((s) => {
+          const plans = s.plans.filter((p) => p.id !== id);
+          const activePlanId = s.activePlanId === id ? null : s.activePlanId;
+          const records = s.records.filter((r) => r.planId !== id);
+          return { plans, activePlanId, records };
+        });
+        const token = useAuthStore.getState().token;
+        if (token) {
+          api.delete(`/plans/${id}`);
+        }
+      },
+      setPlans: (plans) => set({ plans }),
+      togglePlanStatus: (id) => {
+        const plan = get().plans.find((p) => p.id === id);
+        if (!plan) return;
+        const newStatus: PlanStatus = plan.status === 'completed' ? 'planned' : 'completed';
+        get().updatePlan(id, {
+          status: newStatus,
+          completedAt: newStatus === 'completed' ? Date.now() : undefined,
+        });
+      },
+      getPlanByDate: (date) => get().plans.find((p) => p.date === date),
 
       addRecord: (record) => {
         const id = uid('record');
         const newRecord: TrainingRecord = {
           id,
+          planId: record.planId,
           templateId: record.templateId,
+          userId: record.userId,
           title: record.title,
-          date: record.date,
           status: record.status ?? 'planned',
           startTime: record.startTime,
           endTime: record.endTime,
@@ -200,9 +292,9 @@ export const useTrainingStore = create<TrainingStore>()(
         const token = useAuthStore.getState().token;
         if (token) {
           api.post('/records', {
+            plan_id: record.planId,
             template_id: record.templateId,
             title: record.title,
-            date: record.date,
             status: record.status,
             start_time: record.startTime ? new Date(record.startTime).toISOString() : undefined,
             end_time: record.endTime ? new Date(record.endTime).toISOString() : undefined,
@@ -222,7 +314,6 @@ export const useTrainingStore = create<TrainingStore>()(
         if (token) {
           const body: Record<string, unknown> = {};
           if (patch.status) body.status = patch.status;
-          if (patch.date) body.date = patch.date;
           if (patch.startTime !== undefined) body.start_time = new Date(patch.startTime).toISOString();
           if (patch.endTime !== undefined) body.end_time = new Date(patch.endTime).toISOString();
           if (patch.durationSeconds !== undefined) body.duration_seconds = patch.durationSeconds;
@@ -265,7 +356,6 @@ export const useTrainingStore = create<TrainingStore>()(
           set({ activeRecordId: null, session: initialSession });
         }
       },
-      getRecordByDate: (date) => get().records.find((r) => r.date === date),
 
       startSession: (templateId, startIndex = 0) => {
         const tpl = get().templates.find((t) => t.id === templateId);
@@ -393,13 +483,18 @@ export const useTrainingStore = create<TrainingStore>()(
       syncFromServer: async () => {
         const token = useAuthStore.getState().token;
         if (!token) return;
-        const [tplRes, recordRes] = await Promise.all([
+        const [tplRes, planRes, recordRes] = await Promise.all([
           api.get<any>('/templates'),
+          api.get<any>('/plans'),
           api.get<any>('/records'),
         ]);
         if (tplRes.data) {
           const list = (tplRes.data as any).templates ?? [];
           set((s) => ({ ...s, templates: list.map(mapTemplateFromServer) }));
+        }
+        if (planRes.data) {
+          const list = (planRes.data as any).plans ?? [];
+          set((s) => ({ ...s, plans: list.map(mapPlanFromServer) }));
         }
         if (recordRes.data) {
           const list = (recordRes.data as any).records ?? [];
@@ -450,13 +545,29 @@ export const useTrainingStore = create<TrainingStore>()(
           }
         }
       },
+
+      fetchSharePlan: async (planId: string) => {
+        try {
+          const res = await api.get<any>(`/records/share/${planId}`);
+          if (res.data) {
+            const plan = mapPlanFromServer(res.data.plan);
+            const template = mapTemplateFromServer(res.data.template);
+            return { plan, template };
+          }
+        } catch {
+          return null;
+        }
+        return null;
+      },
     }),
     {
       name: 'coach-train-v2:training',
       partialize: (state) => ({
         templates: state.templates,
+        plans: state.plans,
         records: state.records,
         activeTemplateId: state.activeTemplateId,
+        activePlanId: state.activePlanId,
         activeRecordId: state.activeRecordId,
         session: state.session.status !== 'idle' ? state.session : initialSession,
       }),
