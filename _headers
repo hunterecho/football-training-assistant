@@ -1,0 +1,12 @@
+/*  SPA fallback  */
+/*  Fallback for any route that doesn't exist  */
+/*  serves /index.html so React Router can handle the URL  */
+
+# 静态资源缓存
+/assets/*  cache-control: public, max-age=31536000, immutable
+
+# 主 HTML 不缓存
+/index.html  cache-control: no-cache
+
+# SPA 路由回退
+/*  /index.html  200
