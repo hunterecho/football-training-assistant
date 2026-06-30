@@ -70,7 +70,9 @@ export function TodayPlan() {
   const todayKey = toDateKey(today);
 
   const todayPlan = plans.find((p) => p.date === todayKey && p.status === 'planned');
-  const todayRecord = records.find((r) => r.planId === todayPlan?.id && r.status !== 'completed');
+  const todayRecord = records.find((r) =>
+    r.planId === todayPlan?.id && r.status === 'in_progress'
+  );
 
   const template = useMemo(() => {
     if (!todayPlan) return null;
