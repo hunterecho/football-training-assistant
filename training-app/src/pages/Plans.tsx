@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTrainingStore, toDateKey } from '@/store/trainingStore';
+import { useAuthStore } from '@/store/authStore';
 import { formatDuration } from '@/utils/duration';
 import {
   Plus,
@@ -59,6 +60,7 @@ export function Plans() {
   const setActiveRecord = useTrainingStore((s) => s.setActiveRecord);
   const setActivePlan = useTrainingStore((s) => s.setActivePlan);
   const setSessionPanelOpen = useTrainingStore((s) => s.setSessionPanelOpen);
+  const user = useAuthStore((s) => s.user);
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmDelPlan, setConfirmDelPlan] = useState<string | null>(null);
@@ -118,7 +120,7 @@ export function Plans() {
         const newRecordIdPromise = addRecord({
           planId: plan.id,
           templateId: tpl.id,
-          userId: '',
+          userId: user?.id || '',
           title: plan.title,
           status: 'in_progress',
           startTime: Date.now(),
@@ -144,7 +146,8 @@ export function Plans() {
 
   const recordsByPlanId = useMemo(() => {
     const map = new Map<string, typeof records>();
-    for (const r of records) {
+    const currentUserRecords = records.filter((r) => r.userId === user?.id || r.userId === '');
+    for (const r of currentUserRecords) {
       if (!map.has(r.planId)) map.set(r.planId, []);
       map.get(r.planId)!.push(r);
     }
@@ -152,7 +155,7 @@ export function Plans() {
       list.sort((a, b) => (b.startTime || b.createdAt) - (a.startTime || a.createdAt));
     }
     return map;
-  }, [records]);
+  }, [records, user?.id]);
 
   const groupedPlans = useMemo(() => {
     const planned = plans.filter((p) => p.status === 'planned' && p.date);

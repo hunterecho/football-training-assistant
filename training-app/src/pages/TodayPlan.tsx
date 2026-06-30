@@ -38,7 +38,7 @@ export function TodayPlan() {
 
   useEffect(() => {
     if (!user) return;
-    const inProgressRecord = records.find((r) => r.status === 'in_progress');
+    const inProgressRecord = records.find((r) => r.status === 'in_progress' && r.userId === user.id);
     if (inProgressRecord && templates.length > 0) {
       const tpl = templates.find((t) => t.id === inProgressRecord.templateId);
       if (tpl && session.templateId !== inProgressRecord.templateId) {
@@ -71,7 +71,7 @@ export function TodayPlan() {
 
   const todayPlan = plans.find((p) => p.date === todayKey && p.status === 'planned');
   const todayRecord = records.find((r) =>
-    r.planId === todayPlan?.id && r.status === 'in_progress'
+    r.planId === todayPlan?.id && r.status === 'in_progress' && r.userId === user?.id
   );
 
   const template = useMemo(() => {
@@ -198,7 +198,7 @@ export function TodayPlan() {
                   const newRecordIdPromise = addRecord({
                     planId: todayPlan.id,
                     templateId: template.id,
-                    userId: '',
+                    userId: user?.id || '',
                     title: todayPlan.title,
                     status: 'in_progress',
                     startTime: Date.now(),
