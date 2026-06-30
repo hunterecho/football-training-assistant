@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTrainingStore, toDateKey } from '@/store/trainingStore';
 import { DrillCard } from '@/components/Plan/DrillCard';
@@ -12,12 +12,14 @@ import {
   Plus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/authStore';
 
 export function TodayPlan() {
   const templates = useTrainingStore((s) => s.templates);
   const plans = useTrainingStore((s) => s.plans);
   const records = useTrainingStore((s) => s.records);
   const session = useTrainingStore((s) => s.session);
+  const syncFromServer = useTrainingStore((s) => s.syncFromServer);
   const setActiveRecord = useTrainingStore((s) => s.setActiveRecord);
   const addRecord = useTrainingStore((s) => s.addRecord);
   const startSession = useTrainingStore((s) => s.startSession);
@@ -26,6 +28,37 @@ export function TodayPlan() {
   const skipToDrill = useTrainingStore((s) => s.skipToDrill);
   const toggleRecordStatus = useTrainingStore((s) => s.toggleRecordStatus);
   const setSessionPanelOpen = useTrainingStore((s) => s.setSessionPanelOpen);
+  const user = useAuthStore((s) => s.user);
+
+  useEffect(() => {
+    if (user) {
+      syncFromServer();
+    }
+  }, [user, syncFromServer]);
+
+  useEffect(() => {
+    if (!user) return;
+    const inProgressRecord = records.find((r) => r.status === 'in_progress');
+    if (inProgressRecord && templates.length > 0) {
+      const tpl = templates.find((t) => t.id === inProgressRecord.templateId);
+      if (tpl && session.templateId !== inProgressRecord.templateId) {
+        const drillIndex = inProgressRecord.completedDrills ?? 0;
+        const drill = tpl.drills[drillIndex] || tpl.drills[0];
+        setActiveRecord(inProgressRecord.id);
+        useTrainingStore.setState({
+          session: {
+            templateId: inProgressRecord.templateId,
+            drillIndex,
+            remaining: drill?.duration ?? 0,
+            status: 'paused',
+            startedAt: inProgressRecord.startTime ?? Date.now(),
+            lastTickTs: Date.now(),
+            drillStartedAt: Date.now(),
+          },
+        });
+      }
+    }
+  }, [user, records, templates, session.templateId, setActiveRecord]);
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('zh-CN', {
@@ -164,7 +197,7 @@ export function TodayPlan() {
                 if (todayRecord) {
                   setActiveRecord(todayRecord.id);
                 } else {
-                  const newRecordId = addRecord({
+                  const newRecordIdPromise = addRecord({
                     planId: todayPlan.id,
                     templateId: template.id,
                     userId: '',
@@ -174,7 +207,9 @@ export function TodayPlan() {
                     totalDrills: template.drills.length,
                     completedDrills: 0,
                   });
-                  setActiveRecord(newRecordId);
+                  newRecordIdPromise.then((newRecordId) => {
+                    setActiveRecord(newRecordId);
+                  });
                 }
                 startSession(template.id, 0);
                 setSessionPanelOpen(true);

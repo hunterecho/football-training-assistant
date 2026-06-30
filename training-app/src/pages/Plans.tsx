@@ -115,7 +115,7 @@ export function Plans() {
       resumeSession();
     } else if (session.status === 'idle') {
       if (plan && tpl) {
-        const newRecordId = addRecord({
+        const newRecordIdPromise = addRecord({
           planId: plan.id,
           templateId: tpl.id,
           userId: '',
@@ -125,7 +125,9 @@ export function Plans() {
           totalDrills: tpl.drills.length,
           completedDrills: 0,
         });
-        setActiveRecord(newRecordId);
+        newRecordIdPromise.then((newRecordId) => {
+          setActiveRecord(newRecordId);
+        });
       }
       startSession(templateId, 0);
     }

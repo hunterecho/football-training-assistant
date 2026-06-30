@@ -28,14 +28,14 @@ type TrainingStore = {
   setActiveRecord: (id: string | null) => void;
   setSessionPanelOpen: (open: boolean) => void;
 
-  addPlan: (plan: Omit<TrainingPlan, 'id' | 'createdAt'>) => string;
+  addPlan: (plan: Omit<TrainingPlan, 'id' | 'createdAt'>) => Promise<string>;
   updatePlan: (id: string, patch: Partial<TrainingPlan>) => void;
   removePlan: (id: string) => void;
   setPlans: (plans: TrainingPlan[]) => void;
   togglePlanStatus: (id: string) => void;
   getPlanByDate: (date: string) => TrainingPlan | undefined;
 
-  addRecord: (record: Omit<TrainingRecord, 'id' | 'createdAt'>) => string;
+  addRecord: (record: Omit<TrainingRecord, 'id' | 'createdAt'>) => Promise<string>;
   updateRecord: (id: string, patch: Partial<TrainingRecord>) => void;
   removeRecord: (id: string) => void;
   setRecords: (records: TrainingRecord[]) => void;

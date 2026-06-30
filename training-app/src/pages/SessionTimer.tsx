@@ -125,7 +125,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
             return;
           }
         }
-        const recordId = addRecord({
+        const recordIdPromise = addRecord({
           planId: activePlanId ?? undefined,
           templateId: template.id,
           userId: useAuthStore.getState().user?.id ?? 'unknown',
@@ -136,7 +136,9 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
           totalDrills: template.drills.length,
           completedDrills: session.drillIndex,
         });
-        recordIdRef.current = recordId;
+        recordIdPromise.then((recordId) => {
+          recordIdRef.current = recordId;
+        });
       }
     }
   }, [session.status, session.startedAt, template, activeRecordId, addRecord, updateRecord, records]);

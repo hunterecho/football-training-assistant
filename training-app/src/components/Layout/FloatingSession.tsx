@@ -120,7 +120,7 @@ export function FloatingSession() {
             return;
           }
         }
-        const recordId = addRecord({
+        const recordIdPromise = addRecord({
           planId: activePlanId ?? undefined,
           templateId: template.id,
           userId: useAuthStore.getState().user?.id ?? 'unknown',
@@ -131,7 +131,9 @@ export function FloatingSession() {
           totalDrills: template.drills.length,
           completedDrills: session.drillIndex,
         });
-        recordIdRef.current = recordId;
+        recordIdPromise.then((id) => {
+          recordIdRef.current = id;
+        });
       }
     }
   }, [session.status, session.startedAt, template, activeRecordId, addRecord, updateRecord, records]);
