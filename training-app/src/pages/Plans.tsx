@@ -61,6 +61,7 @@ export function Plans() {
   const setActiveRecord = useTrainingStore((s) => s.setActiveRecord);
   const setActivePlan = useTrainingStore((s) => s.setActivePlan);
   const setSelectedPlanId = useTrainingStore((s) => s.setSelectedPlanId);
+  const updatePlan = useTrainingStore((s) => s.updatePlan);
   const user = useAuthStore((s) => s.user);
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -292,7 +293,6 @@ export function Plans() {
                       onTerminatePlan={() => setConfirmTerminatePlan(plan.id)}
                       onStart={() => {
                         handlePlanStart(plan.id, plan.templateId);
-                        setSessionPanelOpen(true);
                       }}
                       session={session}
                       expandedRecords={expandedRecords}
@@ -301,7 +301,6 @@ export function Plans() {
                       onDeleteRecord={(id) => setConfirmDelRecord(id)}
                       onRecordStart={(id, templateId) => {
                         handleRecordStart(id, templateId);
-                        setSessionPanelOpen(true);
                       }}
                       currentUserId={user?.id}
                     />
