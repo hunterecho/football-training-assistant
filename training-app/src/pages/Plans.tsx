@@ -15,6 +15,7 @@ import {
   XCircle,
   Users,
   Share2,
+  PauseCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -59,11 +60,12 @@ export function Plans() {
   const resumeSession = useTrainingStore((s) => s.resumeSession);
   const setActiveRecord = useTrainingStore((s) => s.setActiveRecord);
   const setActivePlan = useTrainingStore((s) => s.setActivePlan);
-  const setSessionPanelOpen = useTrainingStore((s) => s.setSessionPanelOpen);
+  const setSelectedPlanId = useTrainingStore((s) => s.setSelectedPlanId);
   const user = useAuthStore((s) => s.user);
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmDelPlan, setConfirmDelPlan] = useState<string | null>(null);
+  const [confirmTerminatePlan, setConfirmTerminatePlan] = useState<string | null>(null);
   const [confirmDelRecord, setConfirmDelRecord] = useState<string | null>(null);
   const [confirmToggleRecord, setConfirmToggleRecord] = useState<string | null>(null);
   const [expandedPlanDetails, setExpandedPlanDetails] = useState<Set<string>>(new Set());
@@ -108,16 +110,17 @@ export function Plans() {
 
   const addRecord = useTrainingStore((s) => s.addRecord);
 
-  const handlePlanStart = (planId: string, templateId: string) => {
+  const handlePlanStart = async (planId: string, templateId: string) => {
     setActivePlan(planId);
+    setSelectedPlanId(planId);
     const plan = plans.find(p => p.id === planId);
     const tpl = templates.find(t => t.id === templateId);
     
-    if (session.status === 'paused' && session.templateId === templateId) {
+    if ((session.status === 'paused' || session.status === 'ready') && session.templateId === templateId) {
       resumeSession();
     } else if (session.status === 'idle') {
       if (plan && tpl) {
-        const newRecordIdPromise = addRecord({
+        const newRecordId = await addRecord({
           planId: plan.id,
           templateId: tpl.id,
           userId: user?.id || '',
@@ -127,9 +130,7 @@ export function Plans() {
           totalDrills: tpl.drills.length,
           completedDrills: 0,
         });
-        newRecordIdPromise.then((newRecordId) => {
-          setActiveRecord(newRecordId);
-        });
+        setActiveRecord(newRecordId);
       }
       startSession(templateId, 0);
     }
@@ -137,7 +138,7 @@ export function Plans() {
 
   const handleRecordStart = (recordId: string, templateId: string) => {
     setActiveRecord(recordId);
-    if (session.status === 'paused' && session.templateId === templateId) {
+    if ((session.status === 'paused' || session.status === 'ready') && session.templateId === templateId) {
       resumeSession();
     } else if (session.status === 'idle') {
       startSession(templateId, 0);
@@ -146,8 +147,8 @@ export function Plans() {
 
   const recordsByPlanId = useMemo(() => {
     const map = new Map<string, typeof records>();
-    const currentUserRecords = records.filter((r) => r.userId === user?.id || r.userId === '');
-    for (const r of currentUserRecords) {
+    for (const r of records) {
+      if (!r.planId) continue;
       if (!map.has(r.planId)) map.set(r.planId, []);
       map.get(r.planId)!.push(r);
     }
@@ -155,7 +156,7 @@ export function Plans() {
       list.sort((a, b) => (b.startTime || b.createdAt) - (a.startTime || a.createdAt));
     }
     return map;
-  }, [records, user?.id]);
+  }, [records]);
 
   const groupedPlans = useMemo(() => {
     const planned = plans.filter((p) => p.status === 'planned' && p.date);
@@ -243,9 +244,9 @@ export function Plans() {
                             onToggleDetails={() => togglePlanDetails(plan.id)}
                             onToggleRecords={() => togglePlanRecords(plan.id)}
                             onDeletePlan={() => setConfirmDelPlan(plan.id)}
+                            onTerminatePlan={() => setConfirmTerminatePlan(plan.id)}
                             onStart={() => {
                               handlePlanStart(plan.id, plan.templateId);
-                              setSessionPanelOpen(true);
                             }}
                             session={session}
                             expandedRecords={expandedRecords}
@@ -254,8 +255,8 @@ export function Plans() {
                             onDeleteRecord={(id) => setConfirmDelRecord(id)}
                             onRecordStart={(id, templateId) => {
                               handleRecordStart(id, templateId);
-                              setSessionPanelOpen(true);
                             }}
+                            currentUserId={user?.id}
                           />
                         );
                       })}
@@ -288,6 +289,7 @@ export function Plans() {
                       onToggleDetails={() => togglePlanDetails(plan.id)}
                       onToggleRecords={() => togglePlanRecords(plan.id)}
                       onDeletePlan={() => setConfirmDelPlan(plan.id)}
+                      onTerminatePlan={() => setConfirmTerminatePlan(plan.id)}
                       onStart={() => {
                         handlePlanStart(plan.id, plan.templateId);
                         setSessionPanelOpen(true);
@@ -301,6 +303,7 @@ export function Plans() {
                         handleRecordStart(id, templateId);
                         setSessionPanelOpen(true);
                       }}
+                      currentUserId={user?.id}
                     />
                   );
                 })}
@@ -337,6 +340,20 @@ export function Plans() {
           setConfirmDelPlan(null);
         }}
         onCancel={() => setConfirmDelPlan(null)}
+      />
+
+      <ConfirmDialog
+        open={!!confirmTerminatePlan}
+        title="终止该计划？"
+        description="终止后分享链接将失效，但历史训练记录仍会保留。"
+        confirmText="终止"
+        onConfirm={() => {
+          if (confirmTerminatePlan) {
+            updatePlan(confirmTerminatePlan, { status: 'terminated' as PlanStatus });
+          }
+          setConfirmTerminatePlan(null);
+        }}
+        onCancel={() => setConfirmTerminatePlan(null)}
       />
 
       <ConfirmDialog
@@ -383,6 +400,7 @@ function PlanWithRecordsCard({
   onToggleDetails,
   onToggleRecords,
   onDeletePlan,
+  onTerminatePlan,
   onStart,
   session,
   expandedRecords,
@@ -390,6 +408,7 @@ function PlanWithRecordsCard({
   onToggleRecordStatus,
   onDeleteRecord,
   onRecordStart,
+  currentUserId,
 }: {
   plan: import('@/types').TrainingPlan;
   templates: import('@/types').Template[];
@@ -399,6 +418,7 @@ function PlanWithRecordsCard({
   onToggleDetails: () => void;
   onToggleRecords: () => void;
   onDeletePlan: () => void;
+  onTerminatePlan: () => void;
   onStart: () => void;
   session: import('@/types').SessionState;
   expandedRecords: Set<string>;
@@ -406,6 +426,7 @@ function PlanWithRecordsCard({
   onToggleRecordStatus: (id: string) => void;
   onDeleteRecord: (id: string) => void;
   onRecordStart: (id: string, templateId: string) => void;
+  currentUserId?: string;
 }) {
   const tpl = templates.find((t) => t.id === plan.templateId);
   const isCompleted = plan.status === 'completed';
@@ -414,7 +435,7 @@ function PlanWithRecordsCard({
 
   const total = tpl ? tpl.drills.reduce((a, d) => a + d.duration, 0) : 0;
 
-  const inProgressRecord = records.find(r => r.status === 'in_progress');
+  const inProgressRecord = records.find(r => r.status === 'in_progress' && r.userId === currentUserId);
 
   return (
     <div
@@ -503,6 +524,26 @@ function PlanWithRecordsCard({
             >
               <Share2 className="h-4 w-4" />
             </button>
+            {plan.status !== 'terminated' ? (
+              <button
+                onClick={onTerminatePlan}
+                disabled={!!inProgressRecord}
+                className={cn(
+                  'rounded-lg p-2 transition-colors',
+                  !!inProgressRecord
+                    ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
+                    : 'bg-slate-800 text-amber-400 hover:bg-amber-500/20'
+                )}
+                aria-label="终止计划"
+                title={inProgressRecord ? '无法终止正在训练的计划' : '终止计划（分享链接将失效）'}
+              >
+                <PauseCircle className="h-4 w-4" />
+              </button>
+            ) : (
+              <span className="rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-medium text-amber-300">
+                已终止
+              </span>
+            )}
             <button
               onClick={onDeletePlan}
               disabled={!!inProgressRecord}
@@ -584,6 +625,7 @@ function PlanWithRecordsCard({
                   onDelete={() => onDeleteRecord(record.id)}
                   onStart={() => onRecordStart(record.id, record.templateId)}
                   session={session}
+                  currentUserId={currentUserId}
                 />
               ))}
             </div>
@@ -603,6 +645,7 @@ function RecordCard({
   onDelete,
   onStart,
   session,
+  currentUserId,
 }: {
   record: import('@/types').TrainingRecord;
   templates: import('@/types').Template[];
@@ -612,11 +655,16 @@ function RecordCard({
   onDelete: () => void;
   onStart: () => void;
   session: import('@/types').SessionState;
+  currentUserId?: string;
 }) {
   const tpl = templates.find((t) => t.id === record.templateId);
   const isCompleted = record.status === 'completed';
   const isSkipped = record.status === 'skipped';
   const isInProgress = record.status === 'in_progress';
+  const isOthersRecord = !!record.executor && record.executor.id !== currentUserId;
+  
+  const pauseSession = useTrainingStore((s) => s.pauseSession);
+  const resumeSession = useTrainingStore((s) => s.resumeSession);
 
   const total = tpl ? tpl.drills.reduce((a, d) => a + d.duration, 0) : 0;
 
@@ -660,6 +708,23 @@ function RecordCard({
             )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-400">
+            {isOthersRecord && record.executor && (
+              <span className="flex items-center gap-1 rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
+                <Users className="h-3 w-3" />
+                {record.executor.avatar ? (
+                  <img
+                    src={record.executor.avatar}
+                    alt={record.executor.nickname}
+                    className="h-3.5 w-3.5 rounded-full object-cover"
+                  />
+                ) : (
+                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-500/40 text-[9px] text-white">
+                    {record.executor.nickname?.slice(0, 1) || '?'}
+                  </span>
+                )}
+                {record.executor.nickname} 执行
+              </span>
+            )}
             {record.startTime && (
               <span className="flex items-center gap-1">
                 <Clock className="h-2.5 w-2.5" />
@@ -672,17 +737,42 @@ function RecordCard({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {!isCompleted && !isSkipped && tpl && (
+          {!isOthersRecord && !isCompleted && !isSkipped && tpl && !isInProgress && (
             <button
               onClick={onStart}
               className="rounded-md bg-emerald-500/20 p-1.5 text-emerald-300 hover:bg-emerald-500/30"
-              aria-label={session.status === 'paused' && session.templateId === record.templateId ? '恢复训练' : '开始训练'}
-              title={session.status === 'paused' && session.templateId === record.templateId ? '恢复训练' : '开始训练'}
+              aria-label="开始训练"
+              title="开始训练"
             >
               <PlayCircle className="h-3.5 w-3.5" />
             </button>
           )}
-          {!isCompleted && !isSkipped && (
+          {!isOthersRecord && isInProgress && session.templateId === record.templateId && (
+            <button
+              onClick={() => {
+                if (session.status === 'running') {
+                  pauseSession();
+                } else if (session.status === 'paused' || session.status === 'ready') {
+                  resumeSession();
+                }
+              }}
+              className={cn(
+                'rounded-md p-1.5',
+                session.status === 'running'
+                  ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
+                  : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+              )}
+              aria-label={session.status === 'running' ? '暂停训练' : '继续训练'}
+              title={session.status === 'running' ? '暂停训练' : '继续训练'}
+            >
+              {session.status === 'running' ? (
+                <PauseCircle className="h-3.5 w-3.5" />
+              ) : (
+                <PlayCircle className="h-3.5 w-3.5" />
+              )}
+            </button>
+          )}
+          {!isOthersRecord && !isCompleted && !isSkipped && !isInProgress && (
             <button
               onClick={onToggleStatus}
               className="rounded-md bg-emerald-500/20 p-1.5 text-emerald-300 hover:bg-emerald-500/30"
@@ -692,7 +782,7 @@ function RecordCard({
               <CheckCircle2 className="h-3.5 w-3.5" />
             </button>
           )}
-          {!isInProgress && (
+          {!isInProgress && !isOthersRecord && (
             <button
               onClick={onDelete}
               className="rounded-md bg-slate-800 p-1.5 text-rose-400 hover:bg-rose-500/20"
@@ -721,7 +811,7 @@ function RecordCard({
               {tpl.drills.map((drill, idx) => {
                 const isDone = record.status === 'completed'
                   ? true
-                  : (record.completedDrills && idx <= record.completedDrills);
+                  : (record.completedDrills != null && idx < record.completedDrills);
                 return (
                   <div
                     key={drill.id}

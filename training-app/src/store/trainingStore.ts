@@ -16,6 +16,7 @@ type TrainingStore = {
   activeRecordId: string | null;
   synced: boolean;
   sessionPanelOpen: boolean;
+  selectedPlanId: string | null;
 
   setTemplates: (t: Template[]) => void;
   addTemplate: (t: Template) => void;
@@ -27,6 +28,7 @@ type TrainingStore = {
   setActivePlan: (id: string | null) => void;
   setActiveRecord: (id: string | null) => void;
   setSessionPanelOpen: (open: boolean) => void;
+  setSelectedPlanId: (id: string | null) => void;
 
   addPlan: (plan: Omit<TrainingPlan, 'id' | 'createdAt'>) => Promise<string>;
   updatePlan: (id: string, patch: Partial<TrainingPlan>) => void;
@@ -50,6 +52,8 @@ type TrainingStore = {
   setRemaining: (seconds: number) => void;
   finishCurrentDrill: () => void;
   resetSession: () => void;
+  cancelSession: () => void;
+  resetCurrentDrill: () => void;
   tick: (nowTs: number) => void;
 
   syncFromServer: () => Promise<void>;
@@ -117,6 +121,13 @@ const mapRecordFromServer = (r: any): TrainingRecord => ({
   note: r.note,
   createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
   completedAt: r.completed_at ? new Date(r.completed_at).getTime() : undefined,
+  executor: r.executor
+    ? {
+        id: r.executor.id,
+        nickname: r.executor.nickname,
+        avatar: r.executor.avatar ?? null,
+      }
+    : undefined,
 });
 
 export const useTrainingStore = create<TrainingStore>()(
@@ -131,6 +142,7 @@ export const useTrainingStore = create<TrainingStore>()(
       activeRecordId: null,
       synced: false,
       sessionPanelOpen: false,
+      selectedPlanId: null,
 
       setTemplates: (t) => set({ templates: t }),
       addTemplate: async (t) => {
@@ -216,6 +228,7 @@ export const useTrainingStore = create<TrainingStore>()(
       setActivePlan: (id) => set({ activePlanId: id }),
       setActiveRecord: (id) => set({ activeRecordId: id }),
       setSessionPanelOpen: (open) => set({ sessionPanelOpen: open }),
+      setSelectedPlanId: (id) => set({ selectedPlanId: id }),
 
       addPlan: async (plan) => {
         const tempId = uid('plan');
@@ -447,12 +460,14 @@ export const useTrainingStore = create<TrainingStore>()(
 
       resumeSession: () =>
         set((s) => {
-          if (s.session.status !== 'paused') return {};
+          if (s.session.status !== 'paused' && s.session.status !== 'ready') return {};
+          const now = Date.now();
           return {
             session: {
               ...s.session,
               status: 'running',
-              lastTickTs: Date.now(),
+              lastTickTs: now,
+              drillStartedAt: now,
             },
           };
         }),
@@ -535,6 +550,36 @@ export const useTrainingStore = create<TrainingStore>()(
 
       resetSession: () => set({ session: initialSession }),
 
+      cancelSession: () => {
+        const { activeRecordId, removeRecord, records } = get();
+        const currentUserId = useAuthStore.getState().user?.id;
+        if (activeRecordId) {
+          const record = records.find((r) => r.id === activeRecordId);
+          if (record && record.userId === currentUserId) {
+            removeRecord(activeRecordId);
+          }
+        }
+        set({ session: initialSession });
+      },
+
+      resetCurrentDrill: () => {
+        const { session, templates } = get();
+        if (!session.templateId) return;
+        const tpl = templates.find((t) => t.id === session.templateId);
+        if (!tpl) return;
+        const drill = tpl.drills[session.drillIndex];
+        if (!drill) return;
+        set({
+          session: {
+            ...session,
+            remaining: drill.duration,
+            status: 'paused',
+            drillStartedAt: Date.now(),
+            lastTickTs: null,
+          },
+        });
+      },
+
       tick: (nowTs) =>
         set((s) => {
           if (s.session.status !== 'running') return {};
@@ -574,39 +619,29 @@ export const useTrainingStore = create<TrainingStore>()(
         set({ synced: true });
 
         const current = get();
+        const currentUserId = useAuthStore.getState().user?.id;
         if (current.session.status === 'idle') {
           const inProgressRecord = current.records.find(
-            (r) => r.status === 'in_progress'
+            (r) => r.status === 'in_progress' && r.userId === currentUserId
           );
-          if (inProgressRecord && inProgressRecord.startTime && inProgressRecord.templateId) {
+          if (inProgressRecord && inProgressRecord.templateId) {
             const tpl = current.templates.find(
               (t) => t.id === inProgressRecord.templateId
             );
             if (tpl) {
-              const elapsed = (Date.now() - inProgressRecord.startTime) / 1000;
-              let remaining = 0;
-              let drillIndex = 0;
-              let accumulated = 0;
-              for (let i = 0; i < tpl.drills.length; i++) {
-                accumulated += tpl.drills[i].duration;
-                if (elapsed < accumulated) {
-                  drillIndex = i;
-                  remaining = accumulated - elapsed;
-                  break;
-                }
-              }
-              if (drillIndex >= tpl.drills.length) {
-                drillIndex = tpl.drills.length - 1;
-                remaining = 0;
-              }
+              const completedCount = Math.max(0, inProgressRecord.completedDrills ?? 0);
+              const drillIndex = Math.min(completedCount, Math.max(0, tpl.drills.length - 1));
+              const drill = tpl.drills[drillIndex];
+              const remaining = drill ? drill.duration : 0;
+              const isLastFinished = completedCount >= tpl.drills.length;
               set({
                 session: {
                   ...initialSession,
                   templateId: tpl.id,
                   drillIndex,
                   remaining,
-                  status: 'paused',
-                  startedAt: inProgressRecord.startTime,
+                  status: isLastFinished ? 'finished' : 'ready',
+                  startedAt: inProgressRecord.startTime ?? null,
                   lastTickTs: null,
                   drillStartedAt: null,
                 },

@@ -12,13 +12,12 @@ import { settingsRoutes } from './routes/settings';
 const app = express();
 
 const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
   'https://hunterecho.github.io',
 ];
+const localhostPattern = /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):\d+$/;
 app.use(cors({ 
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin) || localhostPattern.test(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));

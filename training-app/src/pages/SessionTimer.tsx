@@ -159,7 +159,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
       speech.pause();
     } else if (session.status === 'running') {
       speech.resume();
-    } else if (session.status === 'idle') {
+    } else if (session.status === 'idle' || session.status === 'ready') {
       speech.clear();
     }
   }, [session.status]);
@@ -437,9 +437,11 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
               ? '进行中'
               : session.status === 'paused'
                 ? '已暂停'
-                : session.status === 'finished'
-                  ? '已完成'
-                  : ''}
+                : session.status === 'ready'
+                  ? '待开始'
+                  : session.status === 'finished'
+                    ? '已完成'
+                    : ''}
           </div>
         </div>
       </div>

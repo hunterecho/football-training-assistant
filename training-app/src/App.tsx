@@ -20,7 +20,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
   if (!user) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   }
   return <>{children}</>;
 }
@@ -51,11 +51,11 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
       <Router basename={ROUTER_BASENAME}>
-        {user && !window.location.pathname.startsWith('/share/') && <UserMenu />}
+        {user && <UserMenu />}
         <div className="mx-auto min-h-screen w-full">
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/share/:planId" element={<ShareDetail />} />
+            <Route path="/share/:planId" element={<RequireAuth><ShareDetail /></RequireAuth>} />
             <Route path="/" element={<RequireAuth><TodayPlan /></RequireAuth>} />
             <Route path="/schedule" element={<RequireAuth><Plans /></RequireAuth>} />
             <Route path="/templates" element={<RequireAuth><TemplateManager /></RequireAuth>} />

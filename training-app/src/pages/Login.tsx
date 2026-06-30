@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { useTrainingStore } from '@/store/trainingStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -16,6 +16,8 @@ export function Login() {
   const syncFromServer = useTrainingStore((s) => s.syncFromServer);
   const loadSettings = useSettingsStore((s) => s.loadFromBackend);
   const navigate = useNavigate();
+  const location = useLocation();
+  const redirectTo = (location.state as any)?.from || '/';
 
   useEffect(() => {
     const ua = window.navigator.userAgent.toLowerCase();
@@ -35,7 +37,7 @@ export function Login() {
     if (result.ok) {
       await syncFromServer();
       await loadSettings();
-      navigate('/');
+      navigate(redirectTo);
     } else {
       setError(result.error || '登录失败');
     }
@@ -54,7 +56,7 @@ export function Login() {
             if (result.ok) {
               await syncFromServer();
               await loadSettings();
-              navigate('/');
+              navigate(redirectTo);
             } else {
               setError(result.error || '微信登录失败');
             }
@@ -71,7 +73,7 @@ export function Login() {
         if (result.ok) {
           await syncFromServer();
           await loadSettings();
-          navigate('/');
+          navigate(redirectTo);
         } else {
           setError(result.error || '登录失败');
         }

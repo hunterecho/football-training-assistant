@@ -23,7 +23,7 @@ export type Template = {
   createdAt: number;
 };
 
-export type PlanStatus = 'planned' | 'completed' | 'skipped';
+export type PlanStatus = 'planned' | 'completed' | 'skipped' | 'terminated';
 
 export type TrainingPlan = {
   id: string;
@@ -37,6 +37,12 @@ export type TrainingPlan = {
 };
 
 export type RecordStatus = 'planned' | 'in_progress' | 'completed' | 'skipped';
+
+export type RecordExecutor = {
+  id: string;
+  nickname: string;
+  avatar: string | null;
+};
 
 export type TrainingRecord = {
   id: string;
@@ -53,9 +59,10 @@ export type TrainingRecord = {
   note?: string;
   createdAt: number;
   completedAt?: number;
+  executor?: RecordExecutor;
 };
 
-export type SessionStatus = 'idle' | 'running' | 'paused' | 'finished';
+export type SessionStatus = 'idle' | 'running' | 'paused' | 'finished' | 'ready';
 
 export type SessionState = {
   templateId: string | null;

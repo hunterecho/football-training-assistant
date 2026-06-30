@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { formatDuration, formatTime } from '@/utils/duration';
 import { useSpeech } from '@/hooks/useSpeech';
 import { useAuthStore } from '@/store/authStore';
 import type { Template, TrainingPlan, SessionState, TrainingRecord } from '@/types';
 import { api } from '@/lib/api';
+import { Clock, Users, RotateCcw, X } from 'lucide-react';
 
 const initialSession: SessionState = {
   templateId: null,
@@ -21,7 +22,7 @@ const mapPlanFromServer = (p: any): TrainingPlan => ({
   templateId: p.template_id,
   title: p.title,
   date: p.date,
-  status: (p.status ?? 'planned') as 'planned' | 'completed' | 'skipped',
+  status: (p.status ?? 'planned') as 'planned' | 'completed' | 'skipped' | 'terminated',
   note: p.note,
   createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
   completedAt: p.completed_at ? new Date(p.completed_at).getTime() : undefined,
@@ -45,16 +46,48 @@ const mapTemplateFromServer = (t: any): Template => ({
   createdAt: t.created_at ? new Date(t.created_at).getTime() : Date.now(),
 });
 
+const mapRecordFromServer = (r: any): TrainingRecord => ({
+  id: r.id,
+  userId: r.user_id,
+  planId: r.plan_id,
+  templateId: r.template_id,
+  title: r.title,
+  status: r.status,
+  startTime: r.start_time ? new Date(r.start_time).getTime() : undefined,
+  endTime: r.end_time ? new Date(r.end_time).getTime() : undefined,
+  durationSeconds: r.duration_seconds,
+  completedDrills: r.completed_drills,
+  totalDrills: r.total_drills,
+  note: r.note,
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+  completedAt: r.completed_at ? new Date(r.completed_at).getTime() : undefined,
+  executor: r.executor ? {
+    id: r.executor.id,
+    nickname: r.executor.nickname,
+    avatar: r.executor.avatar,
+  } : undefined,
+});
+
+const fmtDateTime = (ts?: number) => {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${d.getMonth() + 1}-${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 export function ShareDetail() {
   const { planId } = useParams<{ planId: string }>();
-  const navigate = useNavigate();
   const [plan, setPlan] = useState<TrainingPlan | null>(null);
   const [template, setTemplate] = useState<Template | null>(null);
+  const [terminated, setTerminated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<SessionState>(initialSession);
   const [currentRecordId, setCurrentRecordId] = useState<string | null>(null);
   const [showShareToast, setShowShareToast] = useState(false);
+  const [userRecords, setUserRecords] = useState<TrainingRecord[]>([]);
+  const [completedDrillsCount, setCompletedDrillsCount] = useState(0);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
@@ -71,14 +104,45 @@ export function ShareDetail() {
     
     const fetchData = async () => {
       try {
-        const res = await api.get<any>(`/records/share/${planId}`);
-        if (res.data) {
-          setPlan(mapPlanFromServer(res.data.plan));
-          setTemplate(mapTemplateFromServer(res.data.template));
+        const [shareRes, recordsRes] = await Promise.all([
+          api.get<any>(`/records/share/${planId}`).catch(() => null),
+          token ? api.get<any>(`/records/by-plan/${planId}`).catch(() => null) : Promise.resolve(null),
+        ]);
+        
+        if (shareRes?.data) {
+          setPlan(mapPlanFromServer(shareRes.data.plan));
+          setTemplate(mapTemplateFromServer(shareRes.data.template));
+          setTerminated(!!shareRes.data.terminated);
         } else {
           setError('分享内容不存在');
         }
-      } catch (err) {
+        
+        if (recordsRes?.data?.records) {
+          const records = recordsRes.data.records.map(mapRecordFromServer);
+          setUserRecords(records);
+          
+          const inProgress = records.find(r => r.status === 'in_progress' && r.userId === user?.id);
+          if (inProgress) {
+            setCurrentRecordId(inProgress.id);
+            const completed = inProgress.completedDrills ?? 0;
+            setCompletedDrillsCount(completed);
+            if (template) {
+              const drillIndex = completed;
+              const drill = template.drills[drillIndex];
+              setSession({
+                ...initialSession,
+                templateId: template.id,
+                drillIndex,
+                remaining: drill?.duration ?? 0,
+                status: 'paused',
+                startedAt: inProgress.startTime ? new Date(inProgress.startTime).getTime() : Date.now(),
+                lastTickTs: null,
+                drillStartedAt: Date.now(),
+              });
+            }
+          }
+        }
+      } catch {
         setError('无法获取分享内容');
       } finally {
         setLoading(false);
@@ -86,7 +150,7 @@ export function ShareDetail() {
     };
     
     fetchData();
-  }, [planId]);
+  }, [planId, token]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -133,6 +197,8 @@ export function ShareDetail() {
     if (session.status === 'finished' && template) {
       if (session.drillIndex < template.drills.length - 1) {
         const nextDrill = template.drills[session.drillIndex + 1];
+        const newCompletedCount = session.drillIndex + 1;
+        setCompletedDrillsCount(newCompletedCount);
         setSession({
           ...initialSession,
           templateId: template.id,
@@ -146,10 +212,11 @@ export function ShareDetail() {
         
         if (currentRecordId) {
           api.patch(`/records/${currentRecordId}`, {
-            completed_drills: session.drillIndex + 1,
+            completed_drills: newCompletedCount,
           });
         }
       } else {
+        setCompletedDrillsCount(template.drills.length);
         if (currentRecordId) {
           const endTime = Date.now();
           const durationSeconds = session.startedAt ? Math.round((endTime - session.startedAt) / 1000) : 0;
@@ -180,7 +247,9 @@ export function ShareDetail() {
       });
       
       if (res.data?.record) {
-        return res.data.record.id;
+        const record = mapRecordFromServer(res.data.record);
+        setUserRecords(prev => [record, ...prev]);
+        return record.id;
       }
     } catch {
       console.warn('Failed to create record');
@@ -202,6 +271,7 @@ export function ShareDetail() {
       setCurrentRecordId(recordId);
     }
     
+    setCompletedDrillsCount(0);
     setSession({
       ...initialSession,
       templateId: template.id,
@@ -224,10 +294,44 @@ export function ShareDetail() {
 
   const resumeSession = useCallback(() => {
     setSession((s) => {
-      if (s.status !== 'paused') return s;
-      return { ...s, status: 'running' as const, lastTickTs: Date.now() };
+      if (s.status !== 'paused' && s.status !== 'idle' && s.status !== 'ready') return s;
+      return { ...s, status: 'running' as const, lastTickTs: Date.now(), drillStartedAt: Date.now() };
     });
   }, []);
+
+  const resetCurrentDrill = useCallback(() => {
+    if (!template) return;
+    stop();
+    setSession((s) => {
+      const drill = template.drills[s.drillIndex];
+      if (!drill) return s;
+      return {
+        ...s,
+        remaining: drill.duration,
+        status: 'paused',
+        drillStartedAt: Date.now(),
+        lastTickTs: null,
+      };
+    });
+  }, [template, stop]);
+
+  const cancelTraining = useCallback(async () => {
+    stop();
+    if (currentRecordId) {
+      await api.delete(`/records/${currentRecordId}`);
+      setCurrentRecordId(null);
+    }
+    setSession(initialSession);
+    setCompletedDrillsCount(0);
+    setShowCancelConfirm(false);
+    
+    const [recordsRes] = await Promise.all([
+      token ? api.get<any>(`/records/by-plan/${planId}`).catch(() => null) : Promise.resolve(null),
+    ]);
+    if (recordsRes?.data?.records) {
+      setUserRecords(recordsRes.data.records.map(mapRecordFromServer));
+    }
+  }, [currentRecordId, stop, token, planId]);
 
   const skipToDrill = useCallback((index: number) => {
     if (!template) return;
@@ -264,6 +368,8 @@ export function ShareDetail() {
   };
 
   const totalDuration = template?.drills.reduce((acc, d) => acc + d.duration, 0) ?? 0;
+  const inProgressRecord = userRecords.find(r => r.status === 'in_progress' && r.userId === user?.id);
+  const isOwnInProgress = !!inProgressRecord && (session.status === 'paused' || session.status === 'idle');
 
   if (loading) {
     return (
@@ -279,6 +385,16 @@ export function ShareDetail() {
         <div className="text-6xl mb-4">🔗</div>
         <h1 className="text-xl font-bold text-slate-200 mb-2">分享链接无效</h1>
         <p className="text-slate-400 text-center">{error}</p>
+      </div>
+    );
+  }
+
+  if (terminated) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6">
+        <div className="text-6xl mb-4">🚫</div>
+        <h1 className="text-xl font-bold text-slate-200 mb-2">该训练计划已终止</h1>
+        <p className="text-slate-400 text-center">计划创建者已终止此训练计划，无法继续执行</p>
       </div>
     );
   }
@@ -316,10 +432,34 @@ export function ShareDetail() {
               </svg>
               <span>{formatDuration(totalDuration)}</span>
             </div>
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4" />
+              <span>{userRecords.length} 次记录</span>
+            </div>
           </div>
         </div>
 
-        {session.status === 'idle' ? (
+        {isOwnInProgress && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 mb-4">
+            <div className="flex items-center gap-2 text-amber-400 text-sm mb-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span className="font-medium">您有一个进行中的训练</span>
+            </div>
+            <p className="text-slate-400 text-xs mb-3">
+              已完成 {inProgressRecord.completedDrills ?? 0}/{template.drills.length} 个环节
+            </p>
+            <button
+              onClick={resumeSession}
+              className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-semibold text-sm transition-all"
+            >
+              继续训练
+            </button>
+          </div>
+        )}
+
+        {(session.status === 'idle' || session.status === 'ready' || session.status === 'finished') && !isOwnInProgress && (
           <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl p-6 mb-4">
             <div className="text-center py-8">
               <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
@@ -328,17 +468,26 @@ export function ShareDetail() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <h2 className="text-lg font-semibold mb-2">准备开始训练</h2>
-              <p className="text-slate-400 text-sm mb-6">点击下方按钮开始训练，语音指导将自动播放</p>
-              <button
-                onClick={startSession}
-                className="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 rounded-xl font-semibold transition-all"
-              >
-                开始训练
-              </button>
+              <h2 className="text-lg font-semibold mb-2">
+                {session.status === 'finished' ? '本次训练已完成' : '准备开始训练'}
+              </h2>
+              <p className="text-slate-400 text-sm mb-6">
+                {session.status === 'finished'
+                  ? '恭喜完成本次训练，点击下方按钮可再来一次'
+                  : '点击下方按钮开始训练，语音指导将自动播放'}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={startSession}
+                  className="flex-1 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 rounded-xl font-semibold transition-all"
+                >
+                  {session.status === 'finished' ? '再来一次' : '开始训练'}
+                </button>
+              </div>
             </div>
           </div>
-        ) : (
+        )}
+        {(session.status === 'running' || session.status === 'paused') && (
           <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl p-6 mb-4">
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -394,10 +543,51 @@ export function ShareDetail() {
                 <span className="text-sm">正在播放指导</span>
               </div>
             )}
+
+            <div className="mt-4 flex justify-center gap-4">
+              <button
+                onClick={() => {
+                  resetCurrentDrill();
+                }}
+                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                <RotateCcw className="w-3 h-3" />
+                重置当前环节
+              </button>
+              <button
+                onClick={() => setShowCancelConfirm(true)}
+                className="flex items-center gap-1.5 text-xs text-rose-500 hover:text-rose-300 transition-colors"
+              >
+                <X className="w-3 h-3" />
+                取消训练
+              </button>
+            </div>
+
+            {showCancelConfirm && (
+              <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 p-4">
+                <div className="text-sm text-rose-300 mb-3">
+                  确定要取消这次训练吗？训练记录将被删除。
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowCancelConfirm(false)}
+                    className="flex-1 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700"
+                  >
+                    再想想
+                  </button>
+                  <button
+                    onClick={cancelTraining}
+                    className="flex-1 rounded-lg bg-rose-500 px-4 py-2 text-sm font-medium text-white hover:bg-rose-400"
+                  >
+                    取消训练
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl p-6">
+        <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl p-6 mb-4">
           <h3 className="font-semibold mb-4 flex items-center gap-2">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -406,44 +596,62 @@ export function ShareDetail() {
           </h3>
           
           <div className="space-y-2">
-            {template.drills.map((drill, index) => (
-              <div 
-                key={drill.id}
-                className={`bg-slate-800/50 rounded-xl overflow-hidden transition-all cursor-pointer ${
-                  session.drillIndex === index ? 'ring-2 ring-indigo-500' : ''
-                }`}
-                onClick={() => skipToDrill(index)}
-              >
-                <div className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                      session.drillIndex === index 
-                        ? 'bg-indigo-500 text-white' 
-                        : index < session.drillIndex 
-                          ? 'bg-green-500/20 text-green-400' 
-                          : 'bg-slate-700 text-slate-400'
-                    }`}>
-                      {index < session.drillIndex ? (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        index + 1
-                      )}
+            {template.drills.map((drill, index) => {
+              const isActive = session.drillIndex === index;
+              const isCompleted = index < completedDrillsCount;
+              return (
+                <div 
+                  key={drill.id}
+                  className={`bg-slate-800/50 rounded-xl overflow-hidden transition-all cursor-pointer ${
+                    isActive ? 'ring-2 ring-indigo-500' : ''
+                  }`}
+                  onClick={() => skipToDrill(index)}
+                >
+                  <div className="p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                        isActive 
+                          ? 'bg-indigo-500 text-white' 
+                          : isCompleted
+                            ? 'bg-green-500/20 text-green-400' 
+                            : 'bg-slate-700 text-slate-400'
+                      }`}>
+                        {isCompleted ? (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : (
+                          index + 1
+                        )}
+                      </div>
+                      <div>
+                        <p className={`font-medium text-sm ${isCompleted ? 'line-through text-slate-400' : ''}`}>{drill.title}</p>
+                        <p className="text-slate-500 text-xs">{formatDuration(drill.duration)}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-sm">{drill.title}</p>
-                      <p className="text-slate-500 text-xs">{formatDuration(drill.duration)}</p>
-                    </div>
+                    <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
                   </div>
-                  <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
+
+        {userRecords.length > 0 && (
+          <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl p-6 mb-4">
+            <h3 className="font-semibold mb-4 flex items-center gap-2">
+              <Clock className="w-5 h-5" />
+              我的训练记录 ({userRecords.length})
+            </h3>
+            <div className="space-y-2">
+              {userRecords.map((record) => (
+                <RecordItem key={record.id} record={record} template={template} />
+              ))}
+            </div>
+          </div>
+        )}
 
         {showShareToast && (
           <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-xl shadow-lg">
@@ -454,6 +662,54 @@ export function ShareDetail() {
         <div className="mt-6 text-center text-slate-500 text-xs">
           <p>由训练助手提供支持</p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function RecordItem({ record, template }: { record: TrainingRecord; template: Template }) {
+  const tpl = template;
+  const isCompleted = record.status === 'completed';
+  const isSkipped = record.status === 'skipped';
+  const isInProgress = record.status === 'in_progress';
+
+  return (
+    <div className={`rounded-xl border p-3 ${
+      isCompleted || isSkipped
+        ? 'border-slate-700 bg-slate-900/40'
+        : isInProgress
+        ? 'border-emerald-500/30 bg-emerald-500/5'
+        : 'border-slate-800 bg-slate-900/60'
+    }`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h4 className={`text-sm font-medium ${isCompleted || isSkipped ? 'text-slate-400 line-through' : 'text-white'}`}>
+            {record.title}
+          </h4>
+          {isInProgress && (
+            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">训练中</span>
+          )}
+          {isCompleted && (
+            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">已完成</span>
+          )}
+          {isSkipped && (
+            <span className="rounded-full bg-slate-700 px-2 py-0.5 text-[10px] font-medium text-slate-400">已跳过</span>
+          )}
+        </div>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-400">
+        {record.startTime && (
+          <span className="flex items-center gap-1">
+            <Clock className="w-3 h-3" />
+            {fmtDateTime(record.startTime)}
+          </span>
+        )}
+        {record.durationSeconds && (
+          <span>{formatDuration(record.durationSeconds)}</span>
+        )}
+        {record.completedDrills !== undefined && tpl && (
+          <span>{record.completedDrills}/{tpl.drills.length} 环节</span>
+        )}
       </div>
     </div>
   );

@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 
 export function FloatingSession() {
   const [open, setOpen] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const session = useTrainingStore((s) => s.session);
   const records = useTrainingStore((s) => s.records);
   const activeRecordId = useTrainingStore((s) => s.activeRecordId);
@@ -35,9 +36,12 @@ export function FloatingSession() {
   const resumeSession = useTrainingStore((s) => s.resumeSession);
   const startSessionRaw = useTrainingStore((s) => s.startSession);
   const resetSession = useTrainingStore((s) => s.resetSession);
+  const cancelSession = useTrainingStore((s) => s.cancelSession);
+  const resetCurrentDrill = useTrainingStore((s) => s.resetCurrentDrill);
   const addRecord = useTrainingStore((s) => s.addRecord);
   const updateRecord = useTrainingStore((s) => s.updateRecord);
   const toggleRecordStatus = useTrainingStore((s) => s.toggleRecordStatus);
+  const setSessionPanelOpen = useTrainingStore((s) => s.setSessionPanelOpen);
 
   const settings = useSettingsStore((s) => s.settings);
   const [muted, setMuted] = useState(false);
@@ -99,17 +103,13 @@ export function FloatingSession() {
 
   useEffect(() => {
     if (session.status === 'running' && session.startedAt && template) {
-      const existingRecord = records.find(
-        r => r.templateId === template.id && r.status === 'in_progress'
-      );
-      if (existingRecord) {
-        recordIdRef.current = existingRecord.id;
-        return;
-      }
-      if (!recordIdRef.current) {
-        if (activeRecordId) {
-          const activeRecord = records.find(r => r.id === activeRecordId);
-          if (activeRecord && activeRecord.status === 'planned') {
+      const currentUserId = useAuthStore.getState().user?.id;
+      
+      if (activeRecordId) {
+        const existingRecord = records.find(r => r.id === activeRecordId);
+        if (existingRecord) {
+          recordIdRef.current = activeRecordId;
+          if (existingRecord.status !== 'in_progress') {
             updateRecord(activeRecordId, {
               status: 'in_progress',
               startTime: session.startedAt,
@@ -117,27 +117,20 @@ export function FloatingSession() {
               totalDrills: template.drills.length,
               completedDrills: session.drillIndex,
             });
-            recordIdRef.current = activeRecordId;
-            return;
           }
+          return;
         }
-        const recordIdPromise = addRecord({
-          planId: activePlanId ?? undefined,
-          templateId: template.id,
-          userId: useAuthStore.getState().user?.id ?? 'unknown',
-          title: template.name,
-          status: 'in_progress',
-          startTime: session.startedAt,
-          durationSeconds: 0,
-          totalDrills: template.drills.length,
-          completedDrills: session.drillIndex,
-        });
-        recordIdPromise.then((id) => {
-          recordIdRef.current = id;
-        });
+      }
+      
+      const existingRecord = records.find(
+        r => r.templateId === template.id && r.status === 'in_progress' && r.userId === currentUserId
+      );
+      if (existingRecord) {
+        recordIdRef.current = existingRecord.id;
+        return;
       }
     }
-  }, [session.status, session.startedAt, template, activeRecordId, addRecord, updateRecord, records]);
+  }, [session.status, session.startedAt, template, activeRecordId, records, updateRecord]);
 
   useEffect(() => {
     if (session.status !== 'running') return;
@@ -152,10 +145,23 @@ export function FloatingSession() {
       speech.pause();
     } else if (session.status === 'running') {
       speech.resume();
-    } else if (session.status === 'idle') {
+    } else if (session.status === 'idle' || session.status === 'ready') {
       speech.clear();
     }
   }, [session.status]);
+
+  useEffect(() => {
+    if (session.status === 'idle') {
+      setOpen(false);
+    }
+  }, [session.status]);
+
+  useEffect(() => {
+    if (session.status === 'running' || session.status === 'paused') {
+      setOpen(true);
+      setSessionPanelOpen(true);
+    }
+  }, [session.status, session.templateId]);
 
   useEffect(() => {
     if (!template || !drill) return;
@@ -278,8 +284,8 @@ export function FloatingSession() {
 
   return (
     <>
-      {/* Floating button - only show when there's something to train */}
-      {template && (
+      {/* Floating button - only show when training is active */}
+      {template && session.status !== 'idle' && (
         <button
           onClick={() => setOpen(true)}
           className={cn(
@@ -288,7 +294,7 @@ export function FloatingSession() {
               ? 'bg-emerald-500 text-slate-950 shadow-emerald-500/30'
               : session.status === 'paused'
                 ? 'bg-amber-500 text-slate-950 shadow-amber-500/30'
-                : 'bg-slate-800 text-slate-200 shadow-slate-900/50 border border-slate-700'
+                : 'bg-sky-500 text-slate-950 shadow-sky-500/30'
           )}
         >
           <Timer className="h-5 w-5" />
@@ -299,7 +305,7 @@ export function FloatingSession() {
           ) : session.status === 'paused' ? (
             <span className="text-sm font-medium">已暂停</span>
           ) : (
-            <span className="text-sm font-medium">开始训练</span>
+            <span className="text-sm font-medium">训练中</span>
           )}
         </button>
       )}
@@ -354,8 +360,28 @@ export function FloatingSession() {
                     )}
                   </div>
                   <button
-                    onClick={() => {
-                      if (template) startSessionRef.current(template.id, 0);
+                    onClick={async () => {
+                      if (!template) return;
+                      
+                      if (!activeRecordId) {
+                        const newRecordIdPromise = addRecord({
+                          planId: activePlanId ?? undefined,
+                          templateId: template.id,
+                          userId: useAuthStore.getState().user?.id ?? 'unknown',
+                          title: template.name,
+                          status: 'in_progress',
+                          startTime: Date.now(),
+                          totalDrills: template.drills.length,
+                          completedDrills: 0,
+                        });
+                        const newRecordId = await newRecordIdPromise;
+                        if (newRecordId) {
+                          useTrainingStore.getState().setActiveRecord(newRecordId);
+                          recordIdRef.current = newRecordId;
+                        }
+                      }
+                      
+                      startSessionRef.current(template.id, 0);
                     }}
                     disabled={!template}
                     className="rounded-xl bg-emerald-500 px-8 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
@@ -395,7 +421,7 @@ export function FloatingSession() {
                         {formatDuration(session.remaining)}
                       </div>
                       <div className="mt-1 text-xs text-slate-500">
-                        {session.status === 'running' ? '进行中' : session.status === 'paused' ? '已暂停' : '已完成'}
+                        {session.status === 'running' ? '进行中' : session.status === 'paused' ? '已暂停' : session.status === 'ready' ? '待开始' : '已完成'}
                       </div>
                     </div>
                   </div>
@@ -413,7 +439,7 @@ export function FloatingSession() {
                         if (session.status === 'running') {
                           speech.pause();
                           pauseSession();
-                        } else if (session.status === 'paused') {
+                        } else if (session.status === 'paused' || session.status === 'ready') {
                           resumeSession();
                           speech.resume();
                         } else if (session.status === 'finished') {
@@ -503,20 +529,55 @@ export function FloatingSession() {
                     </div>
                   )}
 
-                  {/* Reset */}
-                  <div className="mt-6 flex justify-center">
+                  {/* Reset & Cancel */}
+                  <div className="mt-6 flex justify-center gap-4">
                     <button
                       onClick={() => {
                         speech.clear();
-                        resetSession();
-                        recordIdRef.current = null;
+                        resetCurrentDrill();
                       }}
                       className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300"
                     >
                       <RotateCcw className="h-3 w-3" />
-                      重置训练
+                      重置当前环节
+                    </button>
+                    <button
+                      onClick={() => setShowCancelConfirm(true)}
+                      className="flex items-center gap-1.5 text-xs text-rose-500 hover:text-rose-300"
+                    >
+                      <X className="h-3 w-3" />
+                      取消训练
                     </button>
                   </div>
+
+                  {/* Cancel Confirmation Modal */}
+                  {showCancelConfirm && (
+                    <div className="mt-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4">
+                      <div className="text-sm text-rose-300 mb-3">
+                        确定要取消这次训练吗？训练记录将被删除。
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setShowCancelConfirm(false)}
+                          className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+                        >
+                          保留训练
+                        </button>
+                        <button
+                          onClick={() => {
+                            speech.clear();
+                            cancelSession();
+                            recordIdRef.current = null;
+                            setShowCancelConfirm(false);
+                            setOpen(false);
+                          }}
+                          className="flex-1 rounded-lg bg-rose-500 px-4 py-2 text-sm font-medium text-white hover:bg-rose-400"
+                        >
+                          取消训练
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>

@@ -152,6 +152,11 @@ export async function dbSelect<T>(
       const u = memUsers.get(value);
       return (u ? [u] : []) as T[];
     }
+    if (column === 'user_id') {
+      if (value === '__ALL__') return Array.from(memUsers.values()) as T[];
+      const u = Array.from(memUsers.values()).find((x: any) => (x as any).user_id === value || (x as any).id === value);
+      return (u ? [u] : []) as T[];
+    }
     return Array.from(memUsers.values()) as T[];
   }
   const bucket = getBucket(table);
@@ -162,18 +167,26 @@ export async function dbUpdate<T>(
   table: TableName,
   id: string,
   patch: Record<string, unknown>,
-  _userId?: string | null
+  userId?: string | null
 ): Promise<T> {
   const sb = getSupabase();
   if (sb) {
-    const res = await sb.from(table).update(patch as any).eq('id', id).select().maybeSingle();
+    const query: any = sb.from(table).update(patch as any).eq('id', id);
+    if (userId) {
+      query.eq('user_id', userId);
+    }
+    const res = await query.select().maybeSingle();
     if (res.error) throw new Error(res.error.message);
+    if (!res.data) throw new Error('Not found or no permission');
     return castRow<T>(res.data);
   }
   const bucket = getBucket(table);
   for (const [uidKey, list] of bucket.entries()) {
     const idx = list.findIndex((r: any) => r.id === id);
     if (idx >= 0) {
+      if (userId && uidKey !== userId) {
+        throw new Error('Not found or no permission');
+      }
       const updated = { ...(list[idx] as object), ...patch };
       list[idx] = updated as unknown;
       bucket.set(uidKey, list);
@@ -186,22 +199,34 @@ export async function dbUpdate<T>(
 export async function dbDelete(
   table: TableName,
   id: string,
-  _userId?: string | null
+  userId?: string | null
 ): Promise<void> {
   const sb = getSupabase();
   if (sb) {
-    const res = await sb.from(table).delete().eq('id', id);
+    const query: any = sb.from(table).delete().eq('id', id);
+    if (userId) {
+      query.eq('user_id', userId);
+    }
+    const res = await query;
     if (res.error) throw new Error(res.error.message);
+    if (res.count === 0 && userId) {
+      throw new Error('Not found or no permission');
+    }
     return;
   }
   const bucket = getBucket(table);
   for (const [uidKey, list] of bucket.entries()) {
-    const filtered = (list as any[]).filter((r) => r.id !== id);
-    if (filtered.length !== list.length) {
+    const hasItem = (list as any[]).some((r: any) => r.id === id);
+    if (hasItem) {
+      if (userId && uidKey !== userId) {
+        throw new Error('Not found or no permission');
+      }
+      const filtered = (list as any[]).filter((r: any) => r.id !== id);
       bucket.set(uidKey, filtered as unknown[]);
       return;
     }
   }
+  throw new Error('Not found');
 }
 
 export async function dbUpsertUser(row: UserRow): Promise<UserRow> {
