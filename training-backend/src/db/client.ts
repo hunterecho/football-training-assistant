@@ -106,14 +106,14 @@ export async function dbInsert<T>(
 ): Promise<T> {
   const sb = getSupabase();
   if (sb) {
-    // Ensure user_id is always set for templates/plans
+    const { id: _, ...rowWithoutId } = row;
     const enrichedRow =
-      table !== 'users' && userId && !row.user_id
-        ? { ...row, user_id: userId }
-        : row;
+      table !== 'users' && userId && !rowWithoutId.user_id
+        ? { ...rowWithoutId, user_id: userId }
+        : rowWithoutId;
     const finalRow = {
       ...enrichedRow,
-      id: (enrichedRow.id as string) || `${table}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+      id: `${table}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
     };
     const res = await sb.from(table).insert(finalRow as any).select().maybeSingle();
     if (res.error) throw new Error(res.error.message);

@@ -133,16 +133,27 @@ export const useTrainingStore = create<TrainingStore>()(
       sessionPanelOpen: false,
 
       setTemplates: (t) => set({ templates: t }),
-      addTemplate: (t) => {
+      addTemplate: async (t) => {
+        const tempId = t.id;
         set((s) => ({ templates: [...s.templates, t] }));
         const token = useAuthStore.getState().token;
         if (token) {
-          api.post('/templates', {
-            id: t.id,
+          const res = await api.post<any>('/templates', {
             name: t.name,
             description: t.description,
             drills: t.drills,
           });
+          if (res.error) {
+            set((s) => ({ templates: s.templates.filter((x) => x.id !== tempId) }));
+            return;
+          }
+          if (res.data) {
+            const serverT = mapTemplateFromServer((res.data as any).template || res.data);
+            set((s) => ({
+              templates: s.templates.map((x) => (x.id === tempId ? serverT : x)),
+              activeTemplateId: s.activeTemplateId === tempId ? serverT.id : s.activeTemplateId,
+            }));
+          }
         }
       },
       updateTemplate: (id, patch) => {
@@ -206,10 +217,10 @@ export const useTrainingStore = create<TrainingStore>()(
       setActiveRecord: (id) => set({ activeRecordId: id }),
       setSessionPanelOpen: (open) => set({ sessionPanelOpen: open }),
 
-      addPlan: (plan) => {
-        const id = uid('plan');
+      addPlan: async (plan) => {
+        const tempId = uid('plan');
         const newPlan: TrainingPlan = {
-          id,
+          id: tempId,
           templateId: plan.templateId,
           title: plan.title,
           date: plan.date,
@@ -218,19 +229,33 @@ export const useTrainingStore = create<TrainingStore>()(
           createdAt: Date.now(),
           completedAt: plan.completedAt,
         };
-        set((s) => ({ plans: [newPlan, ...s.plans], activePlanId: id }));
+        set((s) => ({ plans: [newPlan, ...s.plans], activePlanId: tempId }));
         const token = useAuthStore.getState().token;
         if (token) {
-          api.post('/plans', {
-            id,
+          const res = await api.post<any>('/plans', {
             template_id: plan.templateId,
             title: plan.title,
             date: plan.date,
             status: plan.status,
             note: plan.note,
           });
+          if (res.error) {
+            set((s) => ({
+              plans: s.plans.filter((p) => p.id !== tempId),
+              activePlanId: s.activePlanId === tempId ? null : s.activePlanId,
+            }));
+            return tempId;
+          }
+          if (res.data) {
+            const serverPlan = mapPlanFromServer((res.data as any).plan || res.data);
+            set((s) => ({
+              plans: s.plans.map((p) => (p.id === tempId ? serverPlan : p)),
+              activePlanId: s.activePlanId === tempId ? serverPlan.id : s.activePlanId,
+            }));
+            return serverPlan.id;
+          }
         }
-        return id;
+        return tempId;
       },
       updatePlan: (id, patch) => {
         set((s) => ({
@@ -272,10 +297,10 @@ export const useTrainingStore = create<TrainingStore>()(
       },
       getPlanByDate: (date) => get().plans.find((p) => p.date === date),
 
-      addRecord: (record) => {
-        const id = uid('record');
+      addRecord: async (record) => {
+        const tempId = uid('record');
         const newRecord: TrainingRecord = {
-          id,
+          id: tempId,
           planId: record.planId,
           templateId: record.templateId,
           userId: record.userId,
@@ -290,11 +315,10 @@ export const useTrainingStore = create<TrainingStore>()(
           createdAt: Date.now(),
           completedAt: record.completedAt,
         };
-        set((s) => ({ records: [newRecord, ...s.records], activeRecordId: id }));
+        set((s) => ({ records: [newRecord, ...s.records], activeRecordId: tempId }));
         const token = useAuthStore.getState().token;
         if (token) {
-          api.post('/records', {
-            id,
+          const res = await api.post<any>('/records', {
             plan_id: record.planId,
             template_id: record.templateId,
             title: record.title,
@@ -306,8 +330,23 @@ export const useTrainingStore = create<TrainingStore>()(
             total_drills: record.totalDrills,
             note: record.note,
           });
+          if (res.error) {
+            set((s) => ({
+              records: s.records.filter((r) => r.id !== tempId),
+              activeRecordId: s.activeRecordId === tempId ? null : s.activeRecordId,
+            }));
+            return tempId;
+          }
+          if (res.data) {
+            const serverRecord = mapRecordFromServer((res.data as any).record || res.data);
+            set((s) => ({
+              records: s.records.map((r) => (r.id === tempId ? serverRecord : r)),
+              activeRecordId: s.activeRecordId === tempId ? serverRecord.id : s.activeRecordId,
+            }));
+            return serverRecord.id;
+          }
         }
-        return id;
+        return tempId;
       },
       updateRecord: (id, patch) => {
         set((s) => ({
