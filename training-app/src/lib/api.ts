@@ -18,7 +18,11 @@ async function request<T>(
     if (!headers.has('Content-Type') && init.body) {
       headers.set('Content-Type', 'application/json');
     }
-    const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+      cache: 'no-store',
+    });
     const body = await res.json().catch(() => ({}));
     if (res.status === 401) {
       useAuthStore.getState().logout();

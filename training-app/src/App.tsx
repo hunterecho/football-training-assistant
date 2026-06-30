@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useEffect } from 'react';
 import { BottomNav } from '@/components/Layout/BottomNav';
 import { FloatingSession } from '@/components/Layout/FloatingSession';
 import { TodayPlan } from '@/pages/TodayPlan';
@@ -11,6 +12,7 @@ import { ShareDetail } from '@/pages/ShareDetail';
 import { UserMenu } from '@/components/Layout/UserMenu';
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useTrainingStore } from '@/store/trainingStore';
 
 const ROUTER_BASENAME = import.meta.env.VITE_DEPLOY_TARGET === 'gh-pages' ? '/football-training-assistant' : '/';
 
@@ -26,6 +28,25 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 function App() {
   const user = useAuthStore((s) => s.user);
   const settings = useSettingsStore((s) => s.settings);
+  const syncFromServer = useTrainingStore((s) => s.syncFromServer);
+
+  useEffect(() => {
+    if (!user) return;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncFromServer();
+      }
+    };
+    const handleWindowFocus = () => {
+      syncFromServer();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, [user, syncFromServer]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
