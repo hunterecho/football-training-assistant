@@ -53,7 +53,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
       <Router basename={ROUTER_BASENAME}>
-        {user && !isSharePage && <UserMenu />}
+        {user && <UserMenu />}
         <div className="mx-auto min-h-screen w-full">
           <Routes>
             <Route path="/login" element={<Login />} />

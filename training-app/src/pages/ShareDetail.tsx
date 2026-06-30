@@ -6,7 +6,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useTrainingStore } from '@/store/trainingStore';
 import type { Template, TrainingPlan, SessionState, TrainingRecord } from '@/types';
 import { api } from '@/lib/api';
-import { Clock, Users, RotateCcw, X, LogOut } from 'lucide-react';
+import { Clock, Users, RotateCcw, X, LogOut, UserCircle } from 'lucide-react';
 
 const initialSession: SessionState = {
   templateId: null,
@@ -90,6 +90,7 @@ export function ShareDetail() {
   const [userRecords, setUserRecords] = useState<TrainingRecord[]>([]);
   const [completedDrillsCount, setCompletedDrillsCount] = useState(0);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [sharerName, setSharerName] = useState('');
   
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
@@ -117,6 +118,7 @@ export function ShareDetail() {
           setPlan(mapPlanFromServer(shareRes.data.plan));
           setTemplate(mapTemplateFromServer(shareRes.data.template));
           setTerminated(!!shareRes.data.terminated);
+          setSharerName(shareRes.data.sharerName || '');
         } else {
           setError('分享内容不存在');
         }
@@ -406,7 +408,15 @@ export function ShareDetail() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
       <div className="mx-auto w-full max-w-lg p-4">
-        <div className="flex justify-end mb-2">
+        {sharerName && (
+          <div className="flex items-center justify-center mb-3">
+            <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-900/60 backdrop-blur-sm px-3 py-1.5 rounded-full">
+              <UserCircle className="w-4 h-4 text-emerald-400" />
+              <span><span className="text-emerald-300 font-medium">{sharerName}</span> 分享的训练计划</span>
+            </div>
+          </div>
+        )}
+        <div className="flex justify-end mb-1">
           <button
             onClick={() => {
               logout();

@@ -12,16 +12,38 @@ router.get('/share/:planId', async (req, res) => {
       res.status(404).json({ error: 'Plan not found' });
       return;
     }
-    const plan = plans[0] as { template_id: string; status?: string };
+    const plan = plans[0] as { id: string; user_id: string; template_id: string; status?: string; title?: string; date?: string };
     const templates = await dbSelect('templates', 'id', plan.template_id);
     if (templates.length === 0) {
       res.status(404).json({ error: 'Template not found' });
       return;
     }
     const template = templates[0];
+    
+    let sharerName = '';
+    const sb = getSupabase();
+    if (sb) {
+      const { data: users, error } = await sb
+        .from('users')
+        .select('id, nickname, avatar')
+        .eq('id', plan.user_id)
+        .limit(1);
+      if (error) {
+        console.warn('Failed to fetch sharer info:', error.message);
+      } else if (users && users.length > 0) {
+        sharerName = users[0].nickname || '';
+      }
+    } else {
+      const users = await dbSelect<any>('users', 'id', plan.user_id);
+      if (users.length > 0) {
+        sharerName = users[0].nickname || '';
+      }
+    }
+    
     res.json({
       plan,
       template,
+      sharerName,
       terminated: plan.status === 'terminated',
     });
   } catch (err) {
