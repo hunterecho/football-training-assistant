@@ -138,6 +138,7 @@ export const useTrainingStore = create<TrainingStore>()(
         const token = useAuthStore.getState().token;
         if (token) {
           api.post('/templates', {
+            id: t.id,
             name: t.name,
             description: t.description,
             drills: t.drills,
@@ -221,6 +222,7 @@ export const useTrainingStore = create<TrainingStore>()(
         const token = useAuthStore.getState().token;
         if (token) {
           api.post('/plans', {
+            id,
             template_id: plan.templateId,
             title: plan.title,
             date: plan.date,
@@ -292,6 +294,7 @@ export const useTrainingStore = create<TrainingStore>()(
         const token = useAuthStore.getState().token;
         if (token) {
           api.post('/records', {
+            id,
             plan_id: record.planId,
             template_id: record.templateId,
             title: record.title,

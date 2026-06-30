@@ -111,10 +111,9 @@ export async function dbInsert<T>(
       table !== 'users' && userId && !row.user_id
         ? { ...row, user_id: userId }
         : row;
-    // Generate ID if not provided (for Supabase compatibility)
     const finalRow = {
-      id: `${table}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
       ...enrichedRow,
+      id: (enrichedRow.id as string) || `${table}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
     };
     const res = await sb.from(table).insert(finalRow as any).select().maybeSingle();
     if (res.error) throw new Error(res.error.message);
