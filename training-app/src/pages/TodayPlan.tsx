@@ -84,11 +84,7 @@ export function TodayPlan() {
     if (session.templateId !== template?.id) return 'idle';
     if (idx < currentIndex) return 'done';
     if (idx === currentIndex) {
-      if (
-        session.status === 'finished' &&
-        session.remaining === 0 &&
-        idx < template!.drills.length - 1
-      )
+      if (session.status === 'finished' && session.remaining === 0)
         return 'done';
       return session.status === 'idle'
         ? 'idle'

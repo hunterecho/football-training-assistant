@@ -716,7 +716,9 @@ function RecordCard({
           {isExpanded && (
             <div className="border-t border-slate-800 px-3 py-1.5">
               {tpl.drills.map((drill, idx) => {
-                const isDone = record.completedDrills && idx < record.completedDrills;
+                const isDone = record.status === 'completed'
+                  ? true
+                  : (record.completedDrills && idx <= record.completedDrills);
                 return (
                   <div
                     key={drill.id}

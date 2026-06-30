@@ -34,6 +34,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   const resetSession = useTrainingStore((s) => s.resetSession);
   const addRecord = useTrainingStore((s) => s.addRecord);
   const updateRecord = useTrainingStore((s) => s.updateRecord);
+  const toggleRecordStatus = useTrainingStore((s) => s.toggleRecordStatus);
 
   const settings = useSettingsStore((s) => s.settings);
   const [muted, setMuted] = useState(false);
@@ -271,6 +272,12 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
       const isLast = session.drillIndex >= template.drills.length - 1;
       if (isLast) {
         speech.enqueue('训练完成，大家辛苦了！');
+        if (activeRecordId) {
+          const record = records.find((r) => r.id === activeRecordId);
+          if (record && record.status !== 'completed') {
+            toggleRecordStatus(activeRecordId);
+          }
+        }
       } else {
         const next = template.drills[session.drillIndex + 1];
         speech.enqueue(`${drill.title} 完成，准备进入 ${next?.title ?? '下一环节'}`);
