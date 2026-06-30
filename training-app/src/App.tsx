@@ -29,6 +29,8 @@ function App() {
   const user = useAuthStore((s) => s.user);
   const settings = useSettingsStore((s) => s.settings);
   const syncFromServer = useTrainingStore((s) => s.syncFromServer);
+  const location = useLocation();
+  const isSharePage = location.pathname.startsWith('/share/');
 
   useEffect(() => {
     if (!user) return;
@@ -51,7 +53,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
       <Router basename={ROUTER_BASENAME}>
-        {user && <UserMenu />}
+        {user && !isSharePage && <UserMenu />}
         <div className="mx-auto min-h-screen w-full">
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -64,8 +66,8 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
-        {user && !window.location.pathname.startsWith('/share/') && <BottomNav />}
-        {user && !window.location.pathname.startsWith('/share/') && <FloatingSession />}
+        {user && !isSharePage && <BottomNav />}
+        {user && !isSharePage && <FloatingSession />}
       </Router>
       <audio id="audio-context-bootstrap" className="hidden" aria-hidden />
       <span data-settings-ready={String(settings.speechEnabled)} className="hidden" aria-hidden />

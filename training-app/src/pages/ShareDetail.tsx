@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { formatDuration, formatTime } from '@/utils/duration';
 import { useSpeech } from '@/hooks/useSpeech';
 import { useAuthStore } from '@/store/authStore';
+import { useTrainingStore } from '@/store/trainingStore';
 import type { Template, TrainingPlan, SessionState, TrainingRecord } from '@/types';
 import { api } from '@/lib/api';
-import { Clock, Users, RotateCcw, X } from 'lucide-react';
+import { Clock, Users, RotateCcw, X, LogOut } from 'lucide-react';
 
 const initialSession: SessionState = {
   templateId: null,
@@ -77,6 +78,7 @@ const fmtDateTime = (ts?: number) => {
 
 export function ShareDetail() {
   const { planId } = useParams<{ planId: string }>();
+  const navigate = useNavigate();
   const [plan, setPlan] = useState<TrainingPlan | null>(null);
   const [template, setTemplate] = useState<Template | null>(null);
   const [terminated, setTerminated] = useState(false);
@@ -92,6 +94,8 @@ export function ShareDetail() {
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
   const login = useAuthStore((s) => s.login);
+  const logout = useAuthStore((s) => s.logout);
+  const resetSession = useTrainingStore((s) => s.resetSession);
   
   const { speak, stop, speaking } = useSpeech({ enabled: true });
 
@@ -402,6 +406,19 @@ export function ShareDetail() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
       <div className="mx-auto w-full max-w-lg p-4">
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={() => {
+              logout();
+              resetSession();
+              navigate('/login', { replace: true });
+            }}
+            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 px-2 py-1 rounded transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            退出登录
+          </button>
+        </div>
         <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl p-6 mb-4">
           <div className="flex items-center justify-between mb-4">
             <div>
