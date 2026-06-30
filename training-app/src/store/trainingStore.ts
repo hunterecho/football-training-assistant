@@ -387,10 +387,15 @@ export const useTrainingStore = create<TrainingStore>()(
         const now = Date.now();
         const newEndTime = newStatus === 'completed' ? now : undefined;
         const newDuration = newStatus === 'completed' && record.startTime ? Math.round((now - record.startTime) / 1000) : record.durationSeconds;
+        const tpl = get().templates.find((t) => t.id === record.templateId);
+        const totalDrills = tpl ? tpl.drills.length : record.totalDrills;
+        const completedDrills = newStatus === 'completed' ? totalDrills : record.completedDrills;
         get().updateRecord(id, {
           status: newStatus,
           endTime: newEndTime,
           durationSeconds: newDuration,
+          completedDrills,
+          totalDrills,
           completedAt: newStatus === 'completed' ? now : undefined,
         });
         const current = get();
@@ -418,17 +423,27 @@ export const useTrainingStore = create<TrainingStore>()(
         });
       },
 
-      pauseSession: () =>
-        set((s) => {
-          if (s.session.status !== 'running') return {};
-          return {
-            session: {
-              ...s.session,
-              status: 'paused',
-              remaining: Math.max(0, s.session.remaining),
-            },
-          };
-        }),
+      pauseSession: () => {
+        const { session, activeRecordId, records } = get();
+        if (session.status !== 'running') return;
+        const record = activeRecordId ? records.find((r) => r.id === activeRecordId) : null;
+        if (record && record.startTime) {
+          const elapsedSec = Math.round((Date.now() - record.startTime) / 1000);
+          const completedDrills = session.drillIndex;
+          get().updateRecord(record.id, {
+            status: 'paused' as RecordStatus,
+            durationSeconds: elapsedSec,
+            completedDrills,
+          });
+        }
+        set((s) => ({
+          session: {
+            ...s.session,
+            status: 'paused',
+            remaining: Math.max(0, s.session.remaining),
+          },
+        }));
+      },
 
       resumeSession: () =>
         set((s) => {
@@ -442,24 +457,38 @@ export const useTrainingStore = create<TrainingStore>()(
           };
         }),
 
-      nextDrill: () =>
-        set((s) => {
-          if (!s.session.templateId) return {};
-          const tpl = s.templates.find((t) => t.id === s.session.templateId);
-          if (!tpl) return {};
-          const nextIdx = Math.min(s.session.drillIndex + 1, tpl.drills.length - 1);
-          const drill = tpl.drills[nextIdx];
-          return {
-            session: {
-              ...s.session,
-              drillIndex: nextIdx,
-              remaining: drill.duration,
-              drillStartedAt: Date.now(),
-              lastTickTs: Date.now(),
-              status: nextIdx === s.session.drillIndex ? 'finished' : 'running',
-            },
-          };
-        }),
+      nextDrill: () => {
+        const { session, activeRecordId, records } = get();
+        if (!session.templateId) return;
+        const tpl = get().templates.find((t) => t.id === session.templateId);
+        if (!tpl) return;
+        const nextIdx = Math.min(session.drillIndex + 1, tpl.drills.length - 1);
+        const drill = tpl.drills[nextIdx];
+        
+        const isFinished = nextIdx === session.drillIndex;
+        if (activeRecordId && !isFinished) {
+          const record = records.find((r) => r.id === activeRecordId);
+          if (record && record.startTime) {
+            const elapsedSec = Math.round((Date.now() - record.startTime) / 1000);
+            get().updateRecord(record.id, {
+              status: 'in_progress' as RecordStatus,
+              durationSeconds: elapsedSec,
+              completedDrills: nextIdx,
+            });
+          }
+        }
+        
+        set((s) => ({
+          session: {
+            ...s.session,
+            drillIndex: nextIdx,
+            remaining: drill.duration,
+            drillStartedAt: Date.now(),
+            lastTickTs: Date.now(),
+            status: isFinished ? 'finished' : 'running',
+          },
+        }));
+      },
 
       prevDrill: () =>
         set((s) => {
