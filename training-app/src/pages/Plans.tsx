@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react';
 import { useTrainingStore, toDateKey } from '@/store/trainingStore';
 import { useAuthStore } from '@/store/authStore';
 import { formatDuration } from '@/utils/duration';
-import {
-  Plus,
+import { Plus,
   Calendar as CalendarIcon,
   Trash2,
   PlayCircle,
@@ -16,6 +15,8 @@ import {
   Users,
   Share2,
   PauseCircle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -62,6 +63,10 @@ export function Plans() {
   const setActivePlan = useTrainingStore((s) => s.setActivePlan);
   const setSelectedPlanId = useTrainingStore((s) => s.setSelectedPlanId);
   const updatePlan = useTrainingStore((s) => s.updatePlan);
+  const fetchPlansPage = useTrainingStore((s) => s.fetchPlansPage);
+  const plansPage = useTrainingStore((s) => s.plansPage);
+  const plansPageSize = useTrainingStore((s) => s.plansPageSize);
+  const plansTotal = useTrainingStore((s) => s.plansTotal);
   const user = useAuthStore((s) => s.user);
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -386,6 +391,40 @@ export function Plans() {
         }}
         onCancel={() => setConfirmToggleRecord(null)}
       />
+
+      {plansTotal > plansPageSize && (
+        <div className="mx-auto mt-8 flex items-center justify-center gap-2 px-4">
+          <button
+            onClick={() => fetchPlansPage(Math.max(1, plansPage - 1))}
+            disabled={plansPage <= 1}
+            className={cn(
+              'flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+              plansPage <= 1
+                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            )}
+          >
+            <ChevronLeft className="h-4 w-4" />
+            上一页
+          </button>
+          <span className="text-sm text-slate-400">
+            第 {plansPage} 页 / 共 {Math.ceil(plansTotal / plansPageSize)} 页
+          </span>
+          <button
+            onClick={() => fetchPlansPage(Math.min(Math.ceil(plansTotal / plansPageSize), plansPage + 1))}
+            disabled={plansPage >= Math.ceil(plansTotal / plansPageSize)}
+            className={cn(
+              'flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+              plansPage >= Math.ceil(plansTotal / plansPageSize)
+                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            )}
+          >
+            下一页
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

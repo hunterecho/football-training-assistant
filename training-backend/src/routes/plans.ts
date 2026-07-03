@@ -1,6 +1,6 @@
 import express from 'express';
 import { authRequired } from '../middleware/auth';
-import { dbSelect, dbInsert, dbUpdate, dbDelete } from '../db/client';
+import { dbSelect, dbInsert, dbUpdate, dbDelete, dbCount } from '../db/client';
 
 const router = express.Router();
 
@@ -8,9 +8,16 @@ router.use(authRequired);
 
 router.get('/', async (req, res) => {
   try {
-    const plans = await dbSelect('plans', 'user_id', req.auth!.userId);
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 20;
+    const limit = pageSize;
+    const offset = (page - 1) * pageSize;
+
+    const plans = await dbSelect('plans', 'user_id', req.auth!.userId, req.auth!.userId, limit, offset);
+    const total = await dbCount('plans', 'user_id', req.auth!.userId);
+    
     plans.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    res.json({ plans });
+    res.json({ plans, total, page, pageSize });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
@@ -70,13 +77,14 @@ router.patch('/:id', async (req, res) => {
       res.status(403).json({ error: 'Forbidden' });
       return;
     }
-    const { status, date, note, completed_at } = req.body;
+    const { title, status, date, note, completed_at } = req.body;
     const updates: Record<string, unknown> = {};
+    if (title !== undefined) updates.title = title;
     if (status !== undefined) updates.status = status;
     if (date !== undefined) updates.date = date;
     if (note !== undefined) updates.note = note;
     if (completed_at !== undefined) updates.completed_at = completed_at;
-    const updated = await dbUpdate('plans', id, updates);
+    const updated = await dbUpdate('plans', id, updates, req.auth!.userId);
     res.json({ plan: updated });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

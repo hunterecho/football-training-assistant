@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authRequired } from '../middleware/auth';
-import { dbInsert, dbSelect, dbUpdate, dbDelete } from '../db/client';
+import { dbInsert, dbSelect, dbUpdate, dbDelete, dbCount } from '../db/client';
 
 const router = Router();
 router.use(authRequired);
@@ -8,8 +8,14 @@ router.use(authRequired);
 // GET /api/templates — list current user's templates
 router.get('/', async (req, res) => {
   try {
-    const templates = await dbSelect('templates', 'user_id', req.auth!.userId, req.auth!.userId);
-    res.json({ templates });
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 20;
+    const limit = pageSize;
+    const offset = (page - 1) * pageSize;
+
+    const templates = await dbSelect('templates', 'user_id', req.auth!.userId, req.auth!.userId, limit, offset);
+    const total = await dbCount('templates', 'user_id', req.auth!.userId);
+    res.json({ templates, total, page, pageSize });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });

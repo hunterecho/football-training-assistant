@@ -91,6 +91,8 @@ router.get('/by-plan/:planId', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const userId = req.auth!.userId;
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 20;
     const sb = getSupabase();
 
     type EnrichedRecord = {
@@ -112,6 +114,7 @@ router.get('/', async (req, res) => {
     };
 
     let records: EnrichedRecord[] = [];
+    let total = 0;
 
     if (sb) {
       const { data: ownData, error: ownErr } = await sb
@@ -160,6 +163,7 @@ router.get('/', async (req, res) => {
           ...r,
           executor: Array.isArray(r.executor) ? r.executor[0] : r.executor,
         })) as EnrichedRecord[];
+      total = records.length;
     } else {
       const own = await dbSelect<any>('training_records', 'user_id', userId, userId);
       const userMap = new Map<string, any>();
@@ -191,6 +195,7 @@ router.get('/', async (req, res) => {
       own.forEach(push);
       planRecords.forEach(push);
       records = combined;
+      total = records.length;
     }
 
     const sorted = records.sort((a, b) => {
@@ -198,7 +203,11 @@ router.get('/', async (req, res) => {
       const bTime = new Date(b.start_time || b.created_at).getTime();
       return bTime - aTime;
     });
-    res.json({ records: sorted });
+
+    const offset = (page - 1) * pageSize;
+    const paginated = sorted.slice(offset, offset + pageSize);
+
+    res.json({ records: paginated, total, page, pageSize });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });

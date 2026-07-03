@@ -18,6 +18,13 @@ type TrainingStore = {
   sessionPanelOpen: boolean;
   selectedPlanId: string | null;
 
+  plansPage: number;
+  plansPageSize: number;
+  plansTotal: number;
+  templatesPage: number;
+  templatesPageSize: number;
+  templatesTotal: number;
+
   setTemplates: (t: Template[]) => void;
   addTemplate: (t: Template) => void;
   updateTemplate: (id: string, patch: Partial<Template>) => void;
@@ -36,6 +43,7 @@ type TrainingStore = {
   setPlans: (plans: TrainingPlan[]) => void;
   togglePlanStatus: (id: string) => void;
   getPlanByDate: (date: string) => TrainingPlan | undefined;
+  fetchPlansPage: (page: number, pageSize?: number) => Promise<void>;
 
   addRecord: (record: Omit<TrainingRecord, 'id' | 'createdAt'>) => Promise<string>;
   updateRecord: (id: string, patch: Partial<TrainingRecord>) => void;
@@ -143,6 +151,12 @@ export const useTrainingStore = create<TrainingStore>()(
       synced: false,
       sessionPanelOpen: false,
       selectedPlanId: null,
+      plansPage: 1,
+      plansPageSize: 20,
+      plansTotal: 0,
+      templatesPage: 1,
+      templatesPageSize: 20,
+      templatesTotal: 0,
 
       setTemplates: (t) => set({ templates: t }),
       addTemplate: async (t) => {
@@ -299,6 +313,20 @@ export const useTrainingStore = create<TrainingStore>()(
         }
       },
       setPlans: (plans) => set({ plans }),
+      fetchPlansPage: async (page, pageSize = 20) => {
+        const token = useAuthStore.getState().token;
+        if (!token) return;
+        const res = await api.get<any>(`/plans?page=${page}&pageSize=${pageSize}`);
+        if (res.data) {
+          const list = (res.data as any).plans ?? [];
+          set({
+            plans: list.map(mapPlanFromServer),
+            plansPage: (res.data as any).page ?? page,
+            plansPageSize: (res.data as any).pageSize ?? pageSize,
+            plansTotal: (res.data as any).total ?? 0,
+          });
+        }
+      },
       togglePlanStatus: (id) => {
         const plan = get().plans.find((p) => p.id === id);
         if (!plan) return;

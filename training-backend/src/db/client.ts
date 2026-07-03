@@ -64,11 +64,13 @@ function uid(prefix = 'id'): string {
 const memUsers = new Map<string, UserRow>();
 const memTemplates = new Map<string, TemplateRow[]>();
 const memPlans = new Map<string, PlanRow[]>();
+const memRecords = new Map<string, any[]>();
 const memSystemSettings = new Map<string, { key: string; value: unknown; description?: string }>();
 
 function getBucket(table: TableName): Map<string, unknown[]> {
   if (table === 'templates') return memTemplates as Map<string, unknown[]>;
   if (table === 'plans') return memPlans as Map<string, unknown[]>;
+  if (table === 'training_records') return memRecords as Map<string, unknown[]>;
   return new Map();
 }
 
@@ -140,11 +142,16 @@ export async function dbSelect<T>(
   table: TableName,
   column: string,
   value: string,
-  _userId?: string | null
+  _userId?: string | null,
+  limit?: number,
+  offset?: number
 ): Promise<T[]> {
   const sb = getSupabase();
   if (sb) {
-    const res = await sb.from(table).select('*').eq(column, value).throwOnError();
+    let query = sb.from(table).select('*').eq(column, value);
+    if (limit) query = query.limit(limit);
+    if (offset) (query as any).offset(offset);
+    const res = await query.throwOnError();
     return (res.data ?? []) as T[];
   }
   if (table === 'users') {
@@ -160,7 +167,49 @@ export async function dbSelect<T>(
     return Array.from(memUsers.values()) as T[];
   }
   const bucket = getBucket(table);
-  return (bucket.get(value) ?? []) as T[];
+  let allRows: any[] = [];
+  if (column === 'user_id') {
+    allRows = bucket.get(value) ?? [];
+  } else {
+    for (const list of bucket.values()) {
+      allRows.push(...list);
+    }
+    allRows = allRows.filter((row: any) => row[column] === value);
+  }
+  if (offset) allRows = allRows.slice(offset);
+  if (limit) allRows = allRows.slice(0, limit);
+  return allRows as T[];
+}
+
+export async function dbCount(
+  table: TableName,
+  column: string,
+  value: string
+): Promise<number> {
+  const sb = getSupabase();
+  if (sb) {
+    const res = await sb.from(table).select('id', { count: 'exact', head: true }).eq(column, value);
+    return res.count ?? 0;
+  }
+  if (table === 'users') {
+    if (column === 'id') {
+      return memUsers.has(value) ? 1 : 0;
+    }
+    if (column === 'user_id') {
+      if (value === '__ALL__') return memUsers.size;
+      return Array.from(memUsers.values()).some((x: any) => (x as any).user_id === value || (x as any).id === value) ? 1 : 0;
+    }
+    return memUsers.size;
+  }
+  const bucket = getBucket(table);
+  if (column === 'user_id') {
+    return (bucket.get(value) ?? []).length;
+  }
+  let count = 0;
+  for (const list of bucket.values()) {
+    count += (list as any[]).filter((row: any) => row[column] === value).length;
+  }
+  return count;
 }
 
 export async function dbUpdate<T>(
@@ -254,4 +303,5 @@ export function resetMemoryStore() {
   memUsers.clear();
   memTemplates.clear();
   memPlans.clear();
+  memRecords.clear();
 }
