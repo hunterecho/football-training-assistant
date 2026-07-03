@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { BottomNav } from '@/components/Layout/BottomNav';
 import { FloatingSession } from '@/components/Layout/FloatingSession';
@@ -19,18 +19,24 @@ const ROUTER_BASENAME = import.meta.env.VITE_DEPLOY_TARGET === 'gh-pages' ? '/fo
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
+  const navigate = useNavigate();
+  
+  useEffect(() => {
+    if (!user) {
+      navigate('/login', { replace: true, state: { from: location.pathname + location.search } });
+    }
+  }, [user, location, navigate]);
+  
   if (!user) {
-    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+    return null;
   }
   return <>{children}</>;
 }
 
-function App() {
+function AppContent() {
   const user = useAuthStore((s) => s.user);
   const settings = useSettingsStore((s) => s.settings);
   const syncFromServer = useTrainingStore((s) => s.syncFromServer);
-  const location = useLocation();
-  const isSharePage = location.pathname.startsWith('/share/');
 
   useEffect(() => {
     if (!user) return;
@@ -51,23 +57,33 @@ function App() {
   }, [user, syncFromServer]);
 
   return (
+    <>
+      {user && <UserMenu />}
+      <div className="mx-auto min-h-screen w-full">
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/share/:planId" element={<RequireAuth><ShareDetail /></RequireAuth>} />
+          <Route path="/" element={<RequireAuth><TodayPlan /></RequireAuth>} />
+          <Route path="/schedule" element={<RequireAuth><Plans /></RequireAuth>} />
+          <Route path="/templates" element={<RequireAuth><TemplateManager /></RequireAuth>} />
+          <Route path="/import" element={<RequireAuth><ImportPlan /></RequireAuth>} />
+          <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+      {user && !window.location.pathname.startsWith('/share/') && <BottomNav />}
+      {user && !window.location.pathname.startsWith('/share/') && <FloatingSession />}
+    </>
+  );
+}
+
+function App() {
+  const settings = useSettingsStore((s) => s.settings);
+
+  return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
       <Router basename={ROUTER_BASENAME}>
-        {user && <UserMenu />}
-        <div className="mx-auto min-h-screen w-full">
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/share/:planId" element={<RequireAuth><ShareDetail /></RequireAuth>} />
-            <Route path="/" element={<RequireAuth><TodayPlan /></RequireAuth>} />
-            <Route path="/schedule" element={<RequireAuth><Plans /></RequireAuth>} />
-            <Route path="/templates" element={<RequireAuth><TemplateManager /></RequireAuth>} />
-            <Route path="/import" element={<RequireAuth><ImportPlan /></RequireAuth>} />
-            <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </div>
-        {user && !isSharePage && <BottomNav />}
-        {user && !isSharePage && <FloatingSession />}
+        <AppContent />
       </Router>
       <audio id="audio-context-bootstrap" className="hidden" aria-hidden />
       <span data-settings-ready={String(settings.speechEnabled)} className="hidden" aria-hidden />
