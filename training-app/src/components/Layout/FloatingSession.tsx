@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useSpeech } from '@/hooks/useSpeech';
 import { useBeep } from '@/hooks/useBeep';
 import { useWakeLock } from '@/hooks/useWakeLock';
-import { formatDuration } from '@/utils/duration';
+import { formatDuration, formatDurationChinese } from '@/utils/duration';
 import {
   Play,
   Pause,
@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 export function FloatingSession() {
   const [open, setOpen] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const sessionPanelOpen = useTrainingStore((s) => s.sessionPanelOpen);
   const session = useTrainingStore((s) => s.session);
   const records = useTrainingStore((s) => s.records);
   const activeRecordId = useTrainingStore((s) => s.activeRecordId);
@@ -44,8 +45,12 @@ export function FloatingSession() {
   const setSessionPanelOpen = useTrainingStore((s) => s.setSessionPanelOpen);
 
   const settings = useSettingsStore((s) => s.settings);
-  const [muted, setMuted] = useState(false);
-  const effectiveSpeechEnabled = settings.speechEnabled && !muted;
+  const updateSettings = useSettingsStore((s) => s.update);
+  const [onlyTimerMode, setOnlyTimerMode] = useState(() => {
+    const saved = localStorage.getItem('training_onlyTimerMode');
+    return saved ? JSON.parse(saved) : false;
+  });
+  const effectiveSpeechEnabled = settings.speechEnabled;
   const speech = useSpeech({
     enabled: effectiveSpeechEnabled,
     rate: settings.speechRate,
@@ -68,12 +73,12 @@ export function FloatingSession() {
   const drill = template?.drills[session.drillIndex] ?? null;
 
   useEffect(() => {
-    if (muted) {
+    if (!settings.speechEnabled) {
       speech.clear();
     } else if (session.status === 'running' && drill) {
       try { window.speechSynthesis?.resume(); } catch { /* noop */ }
     }
-  }, [muted, speech, session.status, drill]);
+  }, [settings.speechEnabled, speech, session.status, drill]);
 
   useEffect(() => {
     if (!speech.supported) {
@@ -164,6 +169,12 @@ export function FloatingSession() {
   }, [session.status, session.templateId]);
 
   useEffect(() => {
+    if (sessionPanelOpen && (session.status === 'running' || session.status === 'paused' || session.status === 'finished')) {
+      setOpen(true);
+    }
+  }, [sessionPanelOpen]);
+
+  useEffect(() => {
     if (!template || !drill) return;
 
     if (prevDrillIndexRef.current !== session.drillIndex) {
@@ -182,18 +193,20 @@ export function FloatingSession() {
     }
 
     if (session.status === 'running' && session.remaining >= drill.duration - 0.05) {
-      const intro = `现在开始 ${drill.title}，时长 ${formatDuration(drill.duration)}`;
+      const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
       speech.enqueue(intro);
       beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
-      drill.cues
-        .filter((c) => c.trigger === 'start')
-        .forEach((c) => {
-          const key = `start:${c.id}`;
-          if (!firedCueKeysRef.current.has(key)) {
-            firedCueKeysRef.current.add(key);
-            speech.enqueue(c.text);
-          }
-        });
+      if (!onlyTimerMode) {
+        drill.cues
+          .filter((c) => c.trigger === 'start')
+          .forEach((c) => {
+            const key = `start:${c.id}`;
+            if (!firedCueKeysRef.current.has(key)) {
+              firedCueKeysRef.current.add(key);
+              speech.enqueue(c.text);
+            }
+          });
+      }
     }
 
     const remainingInt = Math.max(0, Math.ceil(session.remaining));
@@ -208,7 +221,7 @@ export function FloatingSession() {
       ) {
         firedMinuteKeysRef.current.add(`m:${elapsedMinutes}`);
         const left = Math.max(0, Math.ceil(drill.duration - elapsed));
-        speech.enqueue(`已过 ${elapsedMinutes} 分钟，还剩 ${formatDuration(left)}`);
+        speech.enqueue(`已过 ${elapsedMinutes} 分钟，还剩 ${formatDurationChinese(left)}`);
       }
 
       if (!firedOneMinLeftRef.current && remainingInt <= 60 && remainingInt > 5) {
@@ -216,30 +229,32 @@ export function FloatingSession() {
         speech.enqueue('还剩一分钟');
       }
 
-      drill.cues
-        .filter((c) => c.trigger === 'interval' && c.seconds)
-        .forEach((c) => {
-          const key = `interval:${c.id}`;
-          if (c.seconds && elapsed >= c.seconds && !firedCueKeysRef.current.has(key)) {
-            firedCueKeysRef.current.add(key);
-            speech.enqueue(c.text);
-          }
-        });
+      if (!onlyTimerMode) {
+        drill.cues
+          .filter((c) => c.trigger === 'interval' && c.seconds)
+          .forEach((c) => {
+            const key = `interval:${c.id}`;
+            if (c.seconds && elapsed >= c.seconds && !firedCueKeysRef.current.has(key)) {
+              firedCueKeysRef.current.add(key);
+              speech.enqueue(c.text);
+            }
+          });
 
-      drill.cues
-        .filter((c) => c.trigger === 'periodic' && c.seconds && c.seconds > 0)
-        .forEach((c) => {
-          if (!c.seconds) return;
-          const key1 = `periodic:${c.id}:1`;
-          const key2 = `periodic:${c.id}:2`;
-          if (elapsed >= c.seconds && !firedCueKeysRef.current.has(key1)) {
-            firedCueKeysRef.current.add(key1);
-            speech.enqueue(c.text);
-          } else if (elapsed >= c.seconds * 2 && !firedCueKeysRef.current.has(key2)) {
-            firedCueKeysRef.current.add(key2);
-            speech.enqueue(c.text);
-          }
-        });
+        drill.cues
+          .filter((c) => c.trigger === 'periodic' && c.seconds && c.seconds > 0)
+          .forEach((c) => {
+            if (!c.seconds) return;
+            const key1 = `periodic:${c.id}:1`;
+            const key2 = `periodic:${c.id}:2`;
+            if (elapsed >= c.seconds && !firedCueKeysRef.current.has(key1)) {
+              firedCueKeysRef.current.add(key1);
+              speech.enqueue(c.text);
+            } else if (elapsed >= c.seconds * 2 && !firedCueKeysRef.current.has(key2)) {
+              firedCueKeysRef.current.add(key2);
+              speech.enqueue(c.text);
+            }
+          });
+      }
     }
 
     if (
@@ -291,10 +306,10 @@ export function FloatingSession() {
           className={cn(
             'fixed bottom-20 left-1/2 z-50 -translate-x-1/2 flex items-center gap-2 rounded-full px-5 py-3 shadow-lg transition-all hover:scale-105',
             session.status === 'running'
-              ? 'bg-emerald-500 text-slate-950 shadow-emerald-500/30'
+              ? 'bg-theme-accent text-white shadow-theme-accent/30'
               : session.status === 'paused'
-                ? 'bg-amber-500 text-slate-950 shadow-amber-500/30'
-                : 'bg-sky-500 text-slate-950 shadow-sky-500/30'
+                ? 'bg-theme-warning text-white shadow-theme-warning/30'
+                : 'bg-sky-500 text-white shadow-sky-500/30'
           )}
         >
           <Timer className="h-5 w-5" />
@@ -314,27 +329,27 @@ export function FloatingSession() {
       {open && (
         <div className="fixed inset-0 z-[60] flex flex-col">
           {/* Backdrop */}
-          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
+          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={() => { setOpen(false); setSessionPanelOpen(false); }} />
 
           {/* Panel */}
-          <div className="max-h-[85vh] overflow-y-auto rounded-t-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 shadow-2xl">
+          <div className="max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white shadow-2xl">
             {/* Panel header */}
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/5 bg-slate-950/80 px-4 py-3 backdrop-blur">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-theme-border bg-white px-4 py-3">
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium text-white">
+                <div className="truncate text-sm font-medium text-theme-text">
                   {activeRecordId
                     ? records.find(r => r.id === activeRecordId)?.title ?? template?.name
                     : template?.name ?? '训练详情'}
                 </div>
                 {session.startedAt && (
-                  <div className="mt-0.5 text-xs text-slate-400">
+                  <div className="mt-0.5 text-xs text-theme-text-muted">
                     开始于 {new Date(session.startedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                   </div>
                 )}
               </div>
               <button
-                onClick={() => setOpen(false)}
-                className="ml-3 shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                onClick={() => { setOpen(false); setSessionPanelOpen(false); }}
+                className="ml-3 shrink-0 rounded-lg p-1.5 text-theme-text-muted hover:bg-theme-bg-card hover:text-theme-text-secondary"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -344,15 +359,15 @@ export function FloatingSession() {
             <div className="p-4 pb-28">
               {!template || session.status === 'idle' || !drill ? (
                 <div className="flex flex-col items-center gap-6 py-12 text-center">
-                  <div className="w-full max-w-sm rounded-3xl border border-slate-800 bg-slate-900/60 p-6">
-                    <div className="text-xs uppercase tracking-widest text-emerald-400">
+                  <div className="w-full max-w-sm rounded-3xl border border-theme-border bg-white p-6">
+                    <div className="text-xs uppercase tracking-widest text-theme-accent">
                       训练计时
                     </div>
-                    <div className="mt-2 text-2xl font-bold text-white">
+                    <div className="mt-2 text-2xl font-bold text-theme-text">
                       {template?.name ?? '未选择模板'}
                     </div>
                     {template && (
-                      <div className="mt-2 flex items-center justify-center gap-2 text-sm text-slate-400">
+                      <div className="mt-2 flex items-center justify-center gap-2 text-sm text-theme-text-muted">
                         <span>{template.drills.length} 个环节</span>
                         <span>·</span>
                         <span>总时长 {formatDuration(template.drills.reduce((a, d) => a + d.duration, 0))}</span>
@@ -384,7 +399,7 @@ export function FloatingSession() {
                       startSessionRef.current(template.id, 0);
                     }}
                     disabled={!template}
-                    className="rounded-xl bg-emerald-500 px-8 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+                    className="rounded-xl bg-theme-accent text-white px-8 py-3 text-sm font-semibold hover:bg-theme-accent-hover disabled:opacity-50"
                   >
                     开始训练
                   </button>
@@ -393,12 +408,12 @@ export function FloatingSession() {
                 <>
                   {/* Drill info */}
                   <div className="mb-4 text-center">
-                    <div className="text-xs uppercase tracking-widest text-emerald-400">
+                    <div className="text-xs uppercase tracking-widest text-theme-accent">
                       当前环节 {session.drillIndex + 1} / {totalDrills}
                     </div>
-                    <h2 className="mt-1 text-2xl font-bold text-white">{drill.title}</h2>
+                    <h2 className="mt-1 text-2xl font-bold text-theme-text">{drill.title}</h2>
                     {drill.summary && (
-                      <p className="mt-1 text-sm text-slate-400">{drill.summary}</p>
+                      <p className="mt-1 text-sm text-theme-text-muted">{drill.summary}</p>
                     )}
                   </div>
 
@@ -408,7 +423,7 @@ export function FloatingSession() {
                       <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" />
                       <circle
                         cx="50" cy="50" r="45" fill="none"
-                        stroke={isLast ? '#10b981' : '#34d399'}
+                        stroke="var(--color-accent)"
                         strokeWidth="3"
                         strokeDasharray={`${2 * Math.PI * 45}`}
                         strokeDashoffset={`${2 * Math.PI * 45 * (1 - progress)}`}
@@ -417,10 +432,10 @@ export function FloatingSession() {
                       />
                     </svg>
                     <div className="flex flex-col items-center">
-                      <div className={cn('font-mono text-5xl font-bold tabular-nums', session.remaining <= 5 ? 'text-red-400' : 'text-white')}>
+                      <div className={cn('font-mono text-5xl font-bold tabular-nums', session.remaining <= 5 ? 'text-red-400' : 'text-theme-text')}>
                         {formatDuration(session.remaining)}
                       </div>
-                      <div className="mt-1 text-xs text-slate-500">
+                      <div className="mt-1 text-xs text-theme-text-muted">
                         {session.status === 'running' ? '进行中' : session.status === 'paused' ? '已暂停' : session.status === 'ready' ? '待开始' : '已完成'}
                       </div>
                     </div>
@@ -430,7 +445,7 @@ export function FloatingSession() {
                   <div className="mx-auto flex max-w-md items-center justify-center gap-3">
                     <button
                       onClick={() => { speech.clear(); prevDrillRef.current(); }}
-                      className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 text-slate-300 hover:bg-slate-800"
+                      className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
                     >
                       <SkipBack className="h-5 w-5" />
                     </button>
@@ -447,7 +462,7 @@ export function FloatingSession() {
                           nextDrillRef.current();
                         }
                       }}
-                      className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400"
+                      className="flex h-16 w-16 items-center justify-center rounded-full bg-theme-accent text-white shadow-lg shadow-theme-accent/30 hover:bg-theme-accent-hover"
                     >
                       {session.status === 'running' ? (
                         <Pause className="h-7 w-7" />
@@ -457,56 +472,76 @@ export function FloatingSession() {
                     </button>
                     <button
                       onClick={() => { speech.clear(); nextDrillRef.current(); }}
-                      className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 text-slate-300 hover:bg-slate-800"
+                      className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
                     >
                       <SkipForward className="h-5 w-5" />
                     </button>
                   </div>
 
-                  {/* Mute toggle */}
-                  <div className="mt-4 flex justify-center">
+                  {/* Mute toggle & Only timer mode */}
+                  <div className="mt-4 flex justify-center gap-2">
                     <button
-                      onClick={() => setMuted((m) => !m)}
-                      className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-800"
+                      onClick={() => updateSettings({ speechEnabled: !settings.speechEnabled })}
+                      className={cn(
+                        'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors',
+                        settings.speechEnabled
+                          ? 'bg-theme-accent/10 text-theme-accent'
+                          : 'bg-theme-bg-card text-theme-text-muted'
+                      )}
                     >
-                      {effectiveSpeechEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-                      {effectiveSpeechEnabled ? '语音播报中' : '已静音'}
+                      {settings.speechEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                      {settings.speechEnabled ? '语音播报' : '已静音'}
+                    </button>
+                    <button
+                      onClick={() => setOnlyTimerMode((m) => {
+                        const newValue = !m;
+                        localStorage.setItem('training_onlyTimerMode', JSON.stringify(newValue));
+                        return newValue;
+                      })}
+                      className={cn(
+                        'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors',
+                        onlyTimerMode
+                          ? 'bg-theme-accent/10 text-theme-accent'
+                          : 'bg-theme-bg-card text-theme-text-muted'
+                      )}
+                    >
+                      <Timer className="h-3.5 w-3.5" />
+                      {onlyTimerMode ? '仅播放计时' : '播放要点'}
                     </button>
                   </div>
 
                   {/* Cues */}
-                  <div className="mt-6">
-                    <div className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-                      教学话术
-                    </div>
-                    <div className="max-h-48 space-y-2 overflow-y-auto rounded-2xl bg-slate-900/70 p-3">
-                      {drill.cues.length === 0 && (
-                        <div className="p-4 text-center text-sm text-slate-500">暂无话术</div>
-                      )}
-                      {drill.cues.map((c, idx) => (
+                  {drill.cues.length > 0 && (
+                    <div className="mt-6">
+                      <div className="mb-2 text-xs font-medium uppercase tracking-wider text-theme-text-muted">
+                        训练要点
+                      </div>
+                      <div className="space-y-2 rounded-2xl bg-theme-bg-card-subtle p-3">
+                        {drill.cues.map((c, idx) => (
                         <div
                           key={c.id}
                           className={cn(
                             'rounded-xl border px-3 py-2 text-sm',
                             c.trigger === 'start'
-                              ? 'border-emerald-500/30 bg-emerald-500/5 text-slate-200'
-                              : 'border-slate-800 bg-slate-950/40 text-slate-300'
+                              ? 'border-theme-accent/30 bg-theme-accent/5 text-theme-text-secondary'
+                              : 'border-theme-border bg-theme-bg-card-faint text-theme-text-secondary'
                           )}
                         >
                           <div className="flex items-start gap-2">
-                            <span className="mt-0.5 text-xs text-slate-500">#{idx + 1}</span>
+                            <span className="mt-0.5 text-xs text-theme-text-muted">#{idx + 1}</span>
                             <p className="flex-1 leading-relaxed">{c.text}</p>
                           </div>
                         </div>
                       ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Completion */}
                   {isLast && (
-                    <div className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-6 text-center">
-                      <Trophy className="mx-auto mb-3 h-10 w-10 text-emerald-400" />
-                      <div className="text-lg font-semibold text-white">训练完成！</div>
+                    <div className="mt-6 rounded-2xl border border-theme-accent/30 bg-theme-accent-light p-6 text-center">
+                      <Trophy className="mx-auto mb-3 h-10 w-10 text-theme-text-secondary" />
+                      <div className="text-lg font-semibold text-theme-text">训练完成！</div>
                       <button
                         onClick={() => {
                           if (recordIdRef.current && session.startedAt) {
@@ -522,7 +557,7 @@ export function FloatingSession() {
                           resetSession();
                           recordIdRef.current = null;
                         }}
-                        className="mt-4 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+                        className="mt-4 rounded-xl bg-theme-accent text-white px-4 py-2 text-sm font-medium hover:bg-theme-accent-hover"
                       >
                         结束训练
                       </button>
@@ -536,14 +571,14 @@ export function FloatingSession() {
                         speech.clear();
                         resetCurrentDrill();
                       }}
-                      className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300"
+                      className="flex items-center gap-1.5 text-xs text-theme-text-muted hover:text-theme-text-secondary"
                     >
                       <RotateCcw className="h-3 w-3" />
                       重置当前环节
                     </button>
                     <button
                       onClick={() => setShowCancelConfirm(true)}
-                      className="flex items-center gap-1.5 text-xs text-rose-500 hover:text-rose-300"
+                      className="flex items-center gap-1.5 text-xs text-theme-danger hover:text-theme-danger"
                     >
                       <X className="h-3 w-3" />
                       取消训练
@@ -552,14 +587,14 @@ export function FloatingSession() {
 
                   {/* Cancel Confirmation Modal */}
                   {showCancelConfirm && (
-                    <div className="mt-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4">
-                      <div className="text-sm text-rose-300 mb-3">
+                    <div className="mt-6 rounded-2xl border border-theme-danger/30 bg-theme-danger/10 p-4">
+                      <div className="text-sm text-theme-danger mb-3">
                         确定要取消这次训练吗？训练记录将被删除。
                       </div>
                       <div className="flex gap-2">
                         <button
                           onClick={() => setShowCancelConfirm(false)}
-                          className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+                          className="flex-1 rounded-lg border border-theme-border bg-theme-bg-card px-4 py-2 text-sm text-theme-text-secondary hover:bg-theme-bg-card"
                         >
                           保留训练
                         </button>
@@ -571,7 +606,7 @@ export function FloatingSession() {
                             setShowCancelConfirm(false);
                             setOpen(false);
                           }}
-                          className="flex-1 rounded-lg bg-rose-500 px-4 py-2 text-sm font-medium text-white hover:bg-rose-400"
+                          className="flex-1 rounded-lg bg-theme-danger px-4 py-2 text-sm font-medium text-white hover:bg-theme-danger"
                         >
                           取消训练
                         </button>

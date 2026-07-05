@@ -93,6 +93,7 @@ const mapTemplateFromServer = (t: any): Template => ({
     id: d.id ?? uid('drill'),
     title: d.title ?? '',
     duration: d.duration ?? 0,
+    summary: d.summary ?? '',
     cues: (d.cues ?? []).map((c: any) => ({
       id: c.id ?? uid('cue'),
       text: c.text ?? '',
@@ -525,7 +526,7 @@ export const useTrainingStore = create<TrainingStore>()(
           session: {
             ...s.session,
             drillIndex: nextIdx,
-            remaining: drill.duration,
+            remaining: isFinished ? 0 : drill.duration,
             drillStartedAt: Date.now(),
             lastTickTs: Date.now(),
             status: isFinished ? 'finished' : 'running',
@@ -563,6 +564,7 @@ export const useTrainingStore = create<TrainingStore>()(
             session: {
               ...s.session,
               drillIndex: index,
+              completedDrills: index,
               remaining: drill.duration,
               drillStartedAt: Date.now(),
               lastTickTs: Date.now(),

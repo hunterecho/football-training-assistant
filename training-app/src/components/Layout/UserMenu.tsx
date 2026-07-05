@@ -17,9 +17,9 @@ export function UserMenu() {
     <div className="fixed right-4 top-4 z-[60]">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-sm text-slate-200 backdrop-blur hover:bg-slate-800"
+        className="flex items-center gap-2 rounded-full border border-theme-border bg-theme-bg-secondary-light px-3 py-1.5 text-sm text-theme-text-secondary backdrop-blur hover:bg-theme-bg-card"
       >
-        <UserCircle2 className="h-4 w-4 text-emerald-400" />
+        <UserCircle2 className="h-4 w-4 text-theme-accent" />
         <span className="max-w-[120px] truncate">{user.nickname}</span>
       </button>
 
@@ -29,17 +29,17 @@ export function UserMenu() {
             className="fixed inset-0 -z-10"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute right-0 mt-2 w-56 rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-2xl">
-            <div className="border-b border-slate-800 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-widest text-slate-500">
+          <div className="absolute right-0 mt-2 w-56 rounded-xl border border-theme-border bg-theme-bg-card p-2 shadow-2xl">
+            <div className="border-b border-theme-border px-3 py-2">
+              <div className="text-[11px] uppercase tracking-widest text-theme-text-muted">
                 当前用户
               </div>
-              <div className="mt-0.5 text-sm font-semibold text-white">
+              <div className="mt-0.5 text-sm font-semibold text-theme-text">
                 {user.nickname}
               </div>
-              <div className="text-xs text-slate-500">
+              <div className="text-xs text-theme-text-muted">
                 {user.role === 'coach' ? '教练' : user.role === 'parent' ? '家长' : '用户'}
-                <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-theme-accent/20 px-1.5 py-0.5 text-[10px] text-theme-accent">
                   <Check className="h-2.5 w-2.5" />
                   已登录
                 </span>
@@ -53,7 +53,7 @@ export function UserMenu() {
                 resetSession();
                 navigate('/login', { replace: true });
               }}
-              className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-rose-300 hover:bg-rose-500/10"
+              className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-theme-danger hover:bg-theme-danger/10"
             >
               <LogOut className="h-4 w-4" />
               退出登录

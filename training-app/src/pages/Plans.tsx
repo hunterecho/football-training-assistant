@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useTrainingStore, toDateKey } from '@/store/trainingStore';
 import { useAuthStore } from '@/store/authStore';
 import { formatDuration } from '@/utils/duration';
@@ -17,6 +17,7 @@ import { Plus,
   PauseCircle,
   ChevronLeft,
   ChevronRight,
+  Edit3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -77,6 +78,20 @@ export function Plans() {
   const [expandedPlanDetails, setExpandedPlanDetails] = useState<Set<string>>(new Set());
   const [expandedPlanRecords, setExpandedPlanRecords] = useState<Set<string>>(new Set());
   const [expandedRecords, setExpandedRecords] = useState<Set<string>>(new Set());
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [editingDate, setEditingDate] = useState('');
+  const [shareMenuOpen, setShareMenuOpen] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.share-menu-container')) {
+        setShareMenuOpen(null);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const togglePlanDetails = (id: string) => {
     setExpandedPlanDetails((prev) => {
@@ -88,6 +103,24 @@ export function Plans() {
       }
       return next;
     });
+  };
+
+  const handleEditPlanDate = (planId: string, currentDate: string) => {
+    setEditingPlanId(planId);
+    setEditingDate(currentDate);
+  };
+
+  const handleSavePlanDate = () => {
+    if (editingPlanId && editingDate) {
+      updatePlan(editingPlanId, { date: editingDate });
+    }
+    setEditingPlanId(null);
+    setEditingDate('');
+  };
+
+  const handleCancelEditPlanDate = () => {
+    setEditingPlanId(null);
+    setEditingDate('');
   };
 
   const togglePlanRecords = (id: string) => {
@@ -164,40 +197,51 @@ export function Plans() {
     return map;
   }, [records]);
 
+  const todayKey = toDateKey(new Date());
+
   const groupedPlans = useMemo(() => {
-    const planned = plans.filter((p) => p.status === 'planned' && p.date);
+    const futurePlans = plans.filter((p) => (p.status === 'planned' || p.status === 'terminated') && p.date && p.date >= todayKey);
+    const pastPlans = plans.filter((p) => (p.status === 'planned' || p.status === 'terminated') && p.date && p.date < todayKey);
     const completed = plans.filter((p) => p.status === 'completed');
     const skipped = plans.filter((p) => p.status === 'skipped');
 
-    const plannedByDate = new Map<string, typeof planned>();
-    for (const p of planned) {
+    const futureByDate = new Map<string, typeof futurePlans>();
+    for (const p of futurePlans) {
       if (!p.date) continue;
-      if (!plannedByDate.has(p.date)) plannedByDate.set(p.date, []);
-      plannedByDate.get(p.date)!.push(p);
+      if (!futureByDate.has(p.date)) futureByDate.set(p.date, []);
+      futureByDate.get(p.date)!.push(p);
+    }
+
+    const pastByDate = new Map<string, typeof pastPlans>();
+    for (const p of pastPlans) {
+      if (!p.date) continue;
+      if (!pastByDate.has(p.date)) pastByDate.set(p.date, []);
+      pastByDate.get(p.date)!.push(p);
     }
 
     return {
-      planned: Array.from(plannedByDate.entries()).sort(([a], [b]) => a.localeCompare(b)),
+      planned: Array.from(futureByDate.entries()).sort(([a], [b]) => a.localeCompare(b)),
+      past: Array.from(pastByDate.entries()).sort(([a], [b]) => b.localeCompare(a)),
       completed: completed.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)),
       skipped: skipped.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)),
     };
-  }, [plans]);
+  }, [plans, todayKey]);
 
-  const todayKey = toDateKey(new Date());
+  const hasAnyInProgress = records.some(r => r.status === 'in_progress' && r.userId === user?.id);
 
   return (
     <div className="mx-auto w-full max-w-2xl pb-28">
       <div className="px-4 pt-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white">训练日程</h1>
-            <p className="mt-1 text-sm text-slate-400">
+            <h1 className="text-2xl font-bold text-theme-text">训练日程</h1>
+            <p className="mt-1 text-sm text-theme-text-muted">
               安排训练计划，查看训练记录
             </p>
           </div>
           <button
             onClick={() => setPickerOpen(true)}
-            className="flex items-center gap-1.5 rounded-2xl bg-emerald-500 px-3.5 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400"
+            className="flex items-center gap-1.5 rounded-2xl bg-theme-accent text-white px-3.5 py-2 text-sm font-semibold shadow-lg hover:bg-theme-accent-hover"
           >
             <Plus className="h-4 w-4" />
             新建计划
@@ -205,11 +249,51 @@ export function Plans() {
         </div>
       </div>
 
+      {editingPlanId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6">
+            <h2 className="text-lg font-semibold text-theme-text">编辑训练日期</h2>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="text-xs text-theme-text-muted">训练计划</label>
+                <div className="mt-1.5 rounded-xl border border-theme-border bg-theme-bg-card px-4 py-2 text-sm text-theme-text">
+                  {plans.find(p => p.id === editingPlanId)?.title || '未知计划'}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-theme-text-muted">训练日期</label>
+                <input
+                  type="date"
+                  value={editingDate}
+                  onChange={(e) => setEditingDate(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-theme-border bg-theme-bg-card px-4 py-2 text-sm text-theme-text focus:border-theme-accent focus:outline-none"
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex gap-2">
+              <button
+                onClick={handleCancelEditPlanDate}
+                className="flex flex-1 items-center justify-center rounded-xl border border-theme-border bg-theme-bg-card px-4 py-2.5 text-sm font-medium text-theme-text-secondary hover:border-theme-accent"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSavePlanDate}
+                disabled={!editingDate}
+                className="flex flex-1 items-center justify-center rounded-xl bg-theme-accent text-white px-4 py-2.5 text-sm font-semibold hover:bg-theme-accent-hover disabled:opacity-50"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {(plans.length === 0 && records.length === 0) ? (
-        <div className="mx-4 mt-8 rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 p-8 text-center">
-          <CalendarIcon className="mx-auto h-10 w-10 text-slate-500" />
-          <div className="mt-3 text-slate-300">还没有训练日程</div>
-          <div className="mt-1 text-xs text-slate-500">
+        <div className="mx-4 mt-8 rounded-2xl border border-dashed border-theme-border bg-theme-bg-secondary-muted p-8 text-center">
+          <CalendarIcon className="mx-auto h-10 w-10 text-theme-text-muted" />
+          <div className="mt-3 text-theme-text-secondary">还没有训练日程</div>
+          <div className="mt-1 text-xs text-theme-text-muted">
             点击右上角「新建计划」从模板创建一个训练日程
           </div>
         </div>
@@ -218,8 +302,8 @@ export function Plans() {
           {groupedPlans.planned.length > 0 && (
             <div>
               <div className="mb-3 flex items-center gap-2">
-                <CalendarIcon className="h-4 w-4 text-blue-400" />
-                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                <CalendarIcon className="h-4 w-4 text-theme-accent" />
+                <span className="text-xs font-medium uppercase tracking-wider text-theme-text-muted">
                   训练计划
                 </span>
               </div>
@@ -227,11 +311,11 @@ export function Plans() {
                 {groupedPlans.planned.map(([date, items]) => (
                   <div key={date}>
                     <div className="mb-2 flex items-center gap-2">
-                      <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                      <div className="text-xs font-medium uppercase tracking-wider text-theme-text-muted">
                         {fmtDateLabel(date)}
                       </div>
                       {date === todayKey && (
-                        <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                        <span className="rounded-full bg-theme-accent/20 px-2 py-0.5 text-[10px] font-medium text-theme-accent">
                           今天
                         </span>
                       )}
@@ -263,6 +347,10 @@ export function Plans() {
                               handleRecordStart(id, templateId);
                             }}
                             currentUserId={user?.id}
+                            onEditDate={handleEditPlanDate}
+                            hasAnyInProgress={hasAnyInProgress}
+                            shareMenuOpen={shareMenuOpen}
+                            setShareMenuOpen={setShareMenuOpen}
                           />
                         );
                       })}
@@ -273,11 +361,11 @@ export function Plans() {
             </div>
           )}
 
-          {(groupedPlans.completed.length > 0 || groupedPlans.skipped.length > 0) && (
+          {(groupedPlans.completed.length > 0 || groupedPlans.skipped.length > 0 || groupedPlans.past.length > 0) && (
             <div>
               <div className="mb-3 flex items-center gap-2">
-                <Clock className="h-4 w-4 text-slate-400" />
-                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                <Clock className="h-4 w-4 text-theme-text-muted" />
+                <span className="text-xs font-medium uppercase tracking-wider text-theme-text-muted">
                   计划历史
                 </span>
               </div>
@@ -308,9 +396,57 @@ export function Plans() {
                         handleRecordStart(id, templateId);
                       }}
                       currentUserId={user?.id}
+                      onEditDate={handleEditPlanDate}
+                      hasAnyInProgress={hasAnyInProgress}
+                      shareMenuOpen={shareMenuOpen}
+                      setShareMenuOpen={setShareMenuOpen}
                     />
                   );
                 })}
+                {groupedPlans.past.map(([date, items]) => (
+                  <div key={date}>
+                    <div className="mb-2 flex items-center gap-2">
+                      <div className="text-xs font-medium uppercase tracking-wider text-theme-text-muted">
+                        {fmtDateLabel(date)}
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      {items.map((plan) => {
+                        const planRecords = recordsByPlanId.get(plan.id) || [];
+                        return (
+                          <PlanWithRecordsCard
+                            key={plan.id}
+                            plan={plan}
+                            templates={templates}
+                            records={planRecords}
+                            isDetailsExpanded={expandedPlanDetails.has(plan.id)}
+                            isRecordsExpanded={expandedPlanRecords.has(plan.id)}
+                            onToggleDetails={() => togglePlanDetails(plan.id)}
+                            onToggleRecords={() => togglePlanRecords(plan.id)}
+                            onDeletePlan={() => setConfirmDelPlan(plan.id)}
+                            onTerminatePlan={() => setConfirmTerminatePlan(plan.id)}
+                            onStart={() => {
+                              handlePlanStart(plan.id, plan.templateId);
+                            }}
+                            session={session}
+                            expandedRecords={expandedRecords}
+                            onToggleRecordExpanded={(id) => toggleRecordExpanded(id)}
+                            onToggleRecordStatus={(id) => setConfirmToggleRecord(id)}
+                            onDeleteRecord={(id) => setConfirmDelRecord(id)}
+                            onRecordStart={(id, templateId) => {
+                              handleRecordStart(id, templateId);
+                            }}
+                            currentUserId={user?.id}
+                            onEditDate={handleEditPlanDate}
+                            hasAnyInProgress={hasAnyInProgress}
+                            shareMenuOpen={shareMenuOpen}
+                            setShareMenuOpen={setShareMenuOpen}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -339,6 +475,9 @@ export function Plans() {
               setConfirmDelPlan(null);
               return;
             }
+            if (plan?.status !== 'terminated') {
+              updatePlan(confirmDelPlan, { status: 'terminated' as PlanStatus });
+            }
             removePlan(confirmDelPlan);
           }
           setConfirmDelPlan(null);
@@ -348,12 +487,14 @@ export function Plans() {
 
       <ConfirmDialog
         open={!!confirmTerminatePlan}
-        title="终止该计划？"
-        description="终止后分享链接将失效，但历史训练记录仍会保留。"
-        confirmText="终止"
+        title={confirmTerminatePlan ? (plans.find(p => p.id === confirmTerminatePlan)?.status === 'terminated' ? '重新分享该计划？' : '取消分享该计划？') : ''}
+        description={confirmTerminatePlan ? (plans.find(p => p.id === confirmTerminatePlan)?.status === 'terminated' ? '重新分享后，之前的分享链接将再次生效。' : '取消分享后，分享链接将失效，但历史训练记录仍会保留。') : ''}
+        confirmText={confirmTerminatePlan ? (plans.find(p => p.id === confirmTerminatePlan)?.status === 'terminated' ? '重新分享' : '取消分享') : ''}
         onConfirm={() => {
           if (confirmTerminatePlan) {
-            updatePlan(confirmTerminatePlan, { status: 'terminated' as PlanStatus });
+            const plan = plans.find(p => p.id === confirmTerminatePlan);
+            const newStatus = plan?.status === 'terminated' ? ('planned' as PlanStatus) : ('terminated' as PlanStatus);
+            updatePlan(confirmTerminatePlan, { status: newStatus });
           }
           setConfirmTerminatePlan(null);
         }}
@@ -400,14 +541,14 @@ export function Plans() {
             className={cn(
               'flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
               plansPage <= 1
-                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                ? 'bg-theme-bg-card text-theme-text-muted cursor-not-allowed'
+                : 'bg-theme-bg-card text-theme-text-secondary hover:bg-theme-bg-card'
             )}
           >
             <ChevronLeft className="h-4 w-4" />
             上一页
           </button>
-          <span className="text-sm text-slate-400">
+          <span className="text-sm text-theme-text-muted">
             第 {plansPage} 页 / 共 {Math.ceil(plansTotal / plansPageSize)} 页
           </span>
           <button
@@ -416,8 +557,8 @@ export function Plans() {
             className={cn(
               'flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
               plansPage >= Math.ceil(plansTotal / plansPageSize)
-                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                ? 'bg-theme-bg-card text-theme-text-muted cursor-not-allowed'
+                : 'bg-theme-bg-card text-theme-text-secondary hover:bg-theme-bg-card'
             )}
           >
             下一页
@@ -447,6 +588,10 @@ function PlanWithRecordsCard({
   onDeleteRecord,
   onRecordStart,
   currentUserId,
+  onEditDate,
+  hasAnyInProgress,
+  shareMenuOpen,
+  setShareMenuOpen,
 }: {
   plan: import('@/types').TrainingPlan;
   templates: import('@/types').Template[];
@@ -465,11 +610,16 @@ function PlanWithRecordsCard({
   onDeleteRecord: (id: string) => void;
   onRecordStart: (id: string, templateId: string) => void;
   currentUserId?: string;
+  onEditDate: (planId: string, date: string) => void;
+  hasAnyInProgress?: boolean;
+  shareMenuOpen: string | null;
+  setShareMenuOpen: (id: string | null) => void;
 }) {
   const tpl = templates.find((t) => t.id === plan.templateId);
   const isCompleted = plan.status === 'completed';
   const isPlanned = plan.status === 'planned';
   const isSkipped = plan.status === 'skipped';
+  const isTerminated = plan.status === 'terminated';
 
   const total = tpl ? tpl.drills.reduce((a, d) => a + d.duration, 0) : 0;
 
@@ -480,10 +630,10 @@ function PlanWithRecordsCard({
       className={cn(
         'rounded-2xl border',
         isCompleted || isSkipped
-          ? 'border-slate-700 bg-slate-900/40 opacity-70'
+          ? 'border-theme-border bg-theme-bg-secondary-muted opacity-70'
           : inProgressRecord
-          ? 'border-emerald-500/30 bg-emerald-500/5'
-          : 'border-slate-800 bg-slate-900/60'
+          ? 'border-theme-accent/30 bg-theme-accent/5'
+          : 'border-theme-border bg-theme-bg-card-light'
       )}
     >
       <div className="flex items-start justify-between gap-3 p-4">
@@ -492,30 +642,30 @@ function PlanWithRecordsCard({
             <h3
               className={cn(
                 'truncate text-base font-semibold',
-                isCompleted || isSkipped ? 'text-slate-400' : 'text-white',
+                isCompleted || isSkipped ? 'text-theme-text-muted' : 'text-theme-text',
                 isCompleted && 'line-through'
               )}
             >
               {plan.title}
             </h3>
             {isCompleted && (
-              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+              <span className="rounded-full bg-theme-accent/20 px-2 py-0.5 text-[10px] font-medium text-theme-accent">
                 已完成
               </span>
             )}
             {isSkipped && (
-              <span className="rounded-full bg-slate-700 px-2 py-0.5 text-[10px] font-medium text-slate-400">
+              <span className="rounded-full bg-theme-border px-2 py-0.5 text-[10px] font-medium text-theme-text-muted">
                 已跳过
               </span>
             )}
-            {inProgressRecord && !isCompleted && !isSkipped && (
-              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+            {inProgressRecord && !isCompleted && !isSkipped && !isTerminated && (
+              <span className="rounded-full bg-theme-accent/20 px-2 py-0.5 text-[10px] font-medium text-theme-accent">
                 训练中
               </span>
             )}
           </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-            {isPlanned && plan.date && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-theme-text-muted">
+            {(isPlanned || isTerminated) && plan.date && (
               <span className="flex items-center gap-1">
                 <CalendarIcon className="h-3 w-3" />
                 {fmtDateLabel(plan.date)}
@@ -537,50 +687,89 @@ function PlanWithRecordsCard({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-            {isPlanned && tpl && !inProgressRecord && (
+            {(isPlanned || isTerminated) && tpl && !inProgressRecord && !hasAnyInProgress && (
               <button
                 onClick={onStart}
-                className="rounded-lg bg-emerald-500/20 p-2 text-emerald-300 hover:bg-emerald-500/30"
+                className="rounded-lg bg-theme-accent p-2 text-white hover:bg-theme-accent-hover"
                 aria-label="开始训练"
                 title="开始训练"
               >
                 <PlayCircle className="h-4 w-4" />
               </button>
             )}
-            <button
-              onClick={() => {
-                const shareUrl = `${window.location.origin}${window.location.pathname.replace('/schedule', '')}/share/${plan.id}`;
-                navigator.clipboard.writeText(shareUrl).then(() => {
-                  alert('分享链接已复制到剪贴板');
-                }).catch(() => {
-                  alert('复制失败，请手动复制链接');
-                });
-              }}
-              className="rounded-lg bg-slate-800 p-2 text-slate-300 hover:bg-slate-700"
-              aria-label="分享计划"
-              title="分享计划"
-            >
-              <Share2 className="h-4 w-4" />
-            </button>
-            {plan.status !== 'terminated' ? (
+            <div className="relative share-menu-container">
               <button
-                onClick={onTerminatePlan}
-                disabled={!!inProgressRecord}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShareMenuOpen(shareMenuOpen === plan.id ? null : plan.id);
+                }}
                 className={cn(
                   'rounded-lg p-2 transition-colors',
-                  !!inProgressRecord
-                    ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                    : 'bg-slate-800 text-amber-400 hover:bg-amber-500/20'
+                  shareMenuOpen === plan.id
+                    ? 'bg-theme-accent/10 text-theme-accent'
+                    : 'bg-theme-bg-card text-theme-text-secondary hover:bg-theme-bg-card'
                 )}
-                aria-label="终止计划"
-                title={inProgressRecord ? '无法终止正在训练的计划' : '终止计划（分享链接将失效）'}
+                aria-label="分享计划"
+                title="分享计划"
               >
-                <PauseCircle className="h-4 w-4" />
+                <Share2 className="h-4 w-4" />
               </button>
-            ) : (
-              <span className="rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-medium text-amber-300">
-                已终止
-              </span>
+              {shareMenuOpen === plan.id && (
+                <div className="absolute right-0 top-full mt-1 w-32 rounded-xl border border-theme-border bg-white shadow-lg py-1 z-10">
+                  {plan.status !== 'terminated' ? (
+                    <>
+                      <button
+                        onClick={() => {
+                          const shareUrl = `${window.location.origin}${window.location.pathname.replace('/schedule', '')}/share/${plan.id}`;
+                          navigator.clipboard.writeText(shareUrl).then(() => {
+                            alert('分享链接已复制到剪贴板');
+                          }).catch(() => {
+                            alert('复制失败，请手动复制链接');
+                          });
+                          setShareMenuOpen(null);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-xs text-theme-text-secondary hover:bg-theme-bg-card"
+                      >
+                        <Share2 className="h-3 w-3" />
+                        分享链接
+                      </button>
+                      {!inProgressRecord && (
+                        <button
+                          onClick={() => {
+                            onTerminatePlan();
+                            setShareMenuOpen(null);
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-xs text-theme-danger hover:bg-theme-bg-card"
+                        >
+                          <XCircle className="h-3 w-3" />
+                          取消分享
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        onTerminatePlan();
+                        setShareMenuOpen(null);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs text-theme-accent hover:bg-theme-bg-card"
+                    >
+                      <Share2 className="h-3 w-3" />
+                      重新分享
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            {(isPlanned || isTerminated) && !inProgressRecord && (
+              <button
+                onClick={() => onEditDate(plan.id, plan.date || '')}
+                className="rounded-lg bg-theme-bg-card p-2 text-theme-text-secondary hover:bg-theme-bg-card"
+                aria-label="编辑计划"
+                title="编辑训练日期"
+              >
+                <Edit3 className="h-4 w-4" />
+              </button>
             )}
             <button
               onClick={onDeletePlan}
@@ -588,8 +777,8 @@ function PlanWithRecordsCard({
               className={cn(
                 'rounded-lg p-2 transition-colors',
                 !!inProgressRecord
-                  ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
-                  : 'bg-slate-800 text-rose-400 hover:bg-rose-500/20'
+                  ? 'bg-theme-bg-card-subtle text-theme-text-muted cursor-not-allowed'
+                  : 'bg-theme-bg-card text-theme-danger hover:bg-theme-danger/20'
               )}
               aria-label="删除"
               title={inProgressRecord ? '无法删除正在训练的计划' : '删除'}
@@ -603,7 +792,7 @@ function PlanWithRecordsCard({
         <>
           <button
             onClick={onToggleDetails}
-            className="flex w-full items-center justify-between border-t border-slate-800 px-4 py-2.5 text-xs text-slate-400 hover:bg-white/5"
+            className="flex w-full items-center justify-between border-t border-theme-border px-4 py-2.5 text-xs text-theme-text-muted hover:bg-theme-bg-card-hover-light"
           >
             <span>{tpl.drills.length} 个训练环节</span>
             <ChevronDown
@@ -611,25 +800,25 @@ function PlanWithRecordsCard({
             />
           </button>
           {isDetailsExpanded && (
-            <div className="border-t border-slate-800 px-4 py-2">
+            <div className="border-t border-theme-border px-4 py-2">
               {tpl.drills.map((drill, idx) => (
                 <div
                   key={drill.id}
                   className={cn(
                     'flex items-center gap-2 py-1.5 text-sm',
-                    'text-slate-300'
+                    'text-theme-text-secondary'
                   )}
                 >
                   <span
                     className={cn(
                       'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs',
-                      'bg-slate-800 text-slate-500'
+                      'bg-theme-bg-card text-theme-text-muted'
                     )}
                   >
                     {idx + 1}
                   </span>
                   <span>{drill.title}</span>
-                  <span className="ml-auto text-xs text-slate-500">
+                  <span className="ml-auto text-xs text-theme-text-muted">
                     {formatDuration(drill.duration)}
                   </span>
                 </div>
@@ -640,10 +829,10 @@ function PlanWithRecordsCard({
       )}
 
       {records.length > 0 && (
-        <div className="border-t border-slate-800">
+        <div className="border-t border-theme-border">
           <button
             onClick={onToggleRecords}
-            className="flex w-full items-center justify-between px-4 py-2.5 text-xs text-slate-400 hover:bg-white/5"
+            className="flex w-full items-center justify-between px-4 py-2.5 text-xs text-theme-text-muted hover:bg-theme-bg-card-hover-light"
           >
             <span>查看 {records.length} 次训练记录</span>
             <ChevronDown
@@ -651,7 +840,7 @@ function PlanWithRecordsCard({
             />
           </button>
           {isRecordsExpanded && (
-            <div className="border-t border-slate-800 bg-slate-900/30 px-4 py-2 space-y-2">
+            <div className="border-t border-theme-border bg-theme-bg-secondary-subtle px-4 py-2 space-y-2">
               {records.map((record) => (
                 <RecordCard
                   key={record.id}
@@ -711,10 +900,10 @@ function RecordCard({
       className={cn(
         'rounded-xl border',
         isCompleted || isSkipped
-          ? 'border-slate-700 bg-slate-900/40'
+          ? 'border-theme-border bg-theme-bg-secondary-muted'
           : isInProgress
-          ? 'border-emerald-500/30 bg-emerald-500/5'
-          : 'border-slate-800 bg-slate-900/60'
+          ? 'border-theme-accent/30 bg-theme-accent/5'
+          : 'border-theme-border bg-theme-bg-card-light'
       )}
     >
       <div className="flex items-start justify-between gap-3 p-3">
@@ -723,31 +912,31 @@ function RecordCard({
             <h4
               className={cn(
                 'truncate text-sm font-medium',
-                isCompleted || isSkipped ? 'text-slate-400' : 'text-white',
+                isCompleted || isSkipped ? 'text-theme-text-muted' : 'text-theme-text',
                 isCompleted && 'line-through'
               )}
             >
               {record.title}
             </h4>
             {isInProgress && (
-              <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
+              <span className="rounded-full bg-theme-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-theme-accent">
                 训练中
               </span>
             )}
             {isCompleted && (
-              <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
+              <span className="rounded-full bg-theme-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-theme-accent">
                 已完成
               </span>
             )}
             {isSkipped && (
-              <span className="rounded-full bg-slate-700 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+              <span className="rounded-full bg-theme-border px-1.5 py-0.5 text-[10px] font-medium text-theme-text-muted">
                 已跳过
               </span>
             )}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-400">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-theme-text-muted">
             {isOthersRecord && record.executor && (
-              <span className="flex items-center gap-1 rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
+              <span className="flex items-center gap-1 rounded-full bg-theme-accent/15 px-2 py-0.5 text-[11px] font-medium text-theme-accent">
                 <Users className="h-3 w-3" />
                 {record.executor.avatar ? (
                   <img
@@ -756,7 +945,7 @@ function RecordCard({
                     className="h-3.5 w-3.5 rounded-full object-cover"
                   />
                 ) : (
-                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-500/40 text-[9px] text-white">
+                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-theme-accent/40 text-[9px] text-white">
                     {record.executor.nickname?.slice(0, 1) || '?'}
                   </span>
                 )}
@@ -778,7 +967,7 @@ function RecordCard({
           {!isOthersRecord && !isCompleted && !isSkipped && tpl && !isInProgress && (
             <button
               onClick={onStart}
-              className="rounded-md bg-emerald-500/20 p-1.5 text-emerald-300 hover:bg-emerald-500/30"
+              className="rounded-md bg-theme-accent/20 p-1.5 text-theme-accent hover:bg-theme-accent/30"
               aria-label="开始训练"
               title="开始训练"
             >
@@ -797,8 +986,8 @@ function RecordCard({
               className={cn(
                 'rounded-md p-1.5',
                 session.status === 'running'
-                  ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
-                  : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                  ? 'bg-theme-warning/20 text-theme-warning hover:bg-theme-warning/30'
+                  : 'bg-theme-accent-light text-theme-text hover:bg-theme-accent/30'
               )}
               aria-label={session.status === 'running' ? '暂停训练' : '继续训练'}
               title={session.status === 'running' ? '暂停训练' : '继续训练'}
@@ -813,7 +1002,7 @@ function RecordCard({
           {!isOthersRecord && !isCompleted && !isSkipped && !isInProgress && (
             <button
               onClick={onToggleStatus}
-              className="rounded-md bg-emerald-500/20 p-1.5 text-emerald-300 hover:bg-emerald-500/30"
+              className="rounded-md bg-theme-accent/20 p-1.5 text-theme-accent hover:bg-theme-accent/30"
               aria-label="标记为已完成"
               title="标记为已完成"
             >
@@ -823,7 +1012,7 @@ function RecordCard({
           {!isInProgress && !isOthersRecord && (
             <button
               onClick={onDelete}
-              className="rounded-md bg-slate-800 p-1.5 text-rose-400 hover:bg-rose-500/20"
+              className="rounded-md bg-theme-bg-card p-1.5 text-theme-danger hover:bg-theme-danger/20"
               aria-label="删除"
               title="删除"
             >
@@ -837,7 +1026,7 @@ function RecordCard({
         <>
           <button
             onClick={onToggleExpand}
-            className="flex w-full items-center justify-between border-t border-slate-800 px-3 py-2 text-[10px] text-slate-400 hover:bg-white/5"
+            className="flex w-full items-center justify-between border-t border-theme-border px-3 py-2 text-[10px] text-theme-text-muted hover:bg-theme-bg-card-hover-light"
           >
             <span>{tpl.drills.length} 个训练环节</span>
             <ChevronDown
@@ -845,7 +1034,7 @@ function RecordCard({
             />
           </button>
           {isExpanded && (
-            <div className="border-t border-slate-800 px-3 py-1.5">
+            <div className="border-t border-theme-border px-3 py-1.5">
               {tpl.drills.map((drill, idx) => {
                 const isDone = record.status === 'completed'
                   ? true
@@ -855,21 +1044,21 @@ function RecordCard({
                     key={drill.id}
                     className={cn(
                       'flex items-center gap-2 py-1 text-xs',
-                      isDone ? 'text-slate-400' : 'text-slate-300'
+                      isDone ? 'text-theme-text-muted' : 'text-theme-text-secondary'
                     )}
                   >
                     <span
                       className={cn(
                         'flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px]',
                         isDone
-                          ? 'bg-emerald-500/20 text-emerald-400'
-                          : 'bg-slate-800 text-slate-500'
+                          ? 'bg-theme-accent-light text-theme-text'
+                          : 'bg-theme-bg-card text-theme-text-muted'
                       )}
                     >
                       {isDone ? <Check className="h-2.5 w-2.5" /> : idx + 1}
                     </span>
                     <span className={cn(isDone && 'line-through')}>{drill.title}</span>
-                    <span className="ml-auto text-[10px] text-slate-500">
+                    <span className="ml-auto text-[10px] text-theme-text-muted">
                       {formatDuration(drill.duration)}
                     </span>
                   </div>
@@ -916,11 +1105,11 @@ function PlanPicker({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-slate-900 p-6">
-        <h2 className="text-lg font-semibold text-white">新建训练计划</h2>
+      <div className="w-full max-w-md rounded-2xl bg-white p-6">
+        <h2 className="text-lg font-semibold text-theme-text">新建训练计划</h2>
         <div className="mt-4 space-y-4">
           <div>
-            <label className="text-xs text-slate-400">选择模板</label>
+            <label className="text-xs text-theme-text-muted">选择模板</label>
             <div className="mt-1.5 flex gap-2 overflow-x-auto pb-2">
               {templates.map((t) => (
                 <button
@@ -929,8 +1118,8 @@ function PlanPicker({
                   className={cn(
                     'shrink-0 rounded-full border px-3 py-1.5 text-sm transition-colors',
                     t.id === selectedTemplateId
-                      ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300'
-                      : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500'
+                      ? 'border-theme-accent bg-theme-accent-light text-theme-text'
+                      : 'border-theme-border bg-theme-bg-card text-theme-text-secondary hover:border-theme-accent'
                   )}
                 >
                   {t.name}
@@ -939,31 +1128,31 @@ function PlanPicker({
             </div>
           </div>
           <div>
-            <label className="text-xs text-slate-400">计划日期</label>
+            <label className="text-xs text-theme-text-muted">计划日期</label>
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+              className="mt-1.5 w-full rounded-xl border border-theme-border bg-theme-bg-card px-3 py-2 text-sm text-theme-text focus:border-theme-accent focus:outline-none"
             />
           </div>
           <div>
-            <label className="text-xs text-slate-400">标题（可选）</label>
+            <label className="text-xs text-theme-text-muted">标题（可选）</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="留空则使用模板名称"
-              className="mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none"
+              className="mt-1.5 w-full rounded-xl border border-theme-border bg-theme-bg-card px-3 py-2 text-sm text-theme-text focus:border-theme-accent focus:outline-none"
             />
           </div>
           <div>
-            <label className="text-xs text-slate-400">备注（可选）</label>
+            <label className="text-xs text-theme-text-muted">备注（可选）</label>
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="添加备注信息..."
-              className="mt-1.5 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none resize-none"
+              className="mt-1.5 w-full rounded-xl border border-theme-border bg-theme-bg-card px-4 py-2 text-sm text-theme-text focus:border-theme-accent focus:outline-none resize-none"
               rows={2}
             />
           </div>
@@ -971,14 +1160,14 @@ function PlanPicker({
         <div className="mt-6 flex gap-2">
           <button
             onClick={onClose}
-            className="flex flex-1 items-center justify-center rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-medium text-slate-300 hover:border-slate-500"
+            className="flex flex-1 items-center justify-center rounded-xl border border-theme-border bg-theme-bg-card px-4 py-2.5 text-sm font-medium text-theme-text-secondary hover:border-theme-accent"
           >
             取消
           </button>
           <button
             onClick={handleCreate}
             disabled={!selectedTemplateId || !date}
-            className="flex flex-1 items-center justify-center rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+            className="flex flex-1 items-center justify-center rounded-xl bg-theme-accent text-white px-4 py-2.5 text-sm font-semibold hover:bg-theme-accent-hover disabled:opacity-50"
           >
             创建
           </button>

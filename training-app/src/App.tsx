@@ -9,7 +9,7 @@ import { ImportPlan } from '@/pages/ImportPlan';
 import { Settings } from '@/pages/Settings';
 import { Login } from '@/pages/Login';
 import { ShareDetail } from '@/pages/ShareDetail';
-import { UserMenu } from '@/components/Layout/UserMenu';
+
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTrainingStore } from '@/store/trainingStore';
@@ -58,7 +58,6 @@ function AppContent() {
 
   return (
     <>
-      {user && <UserMenu />}
       <div className="mx-auto min-h-screen w-full">
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -81,7 +80,7 @@ function App() {
   const settings = useSettingsStore((s) => s.settings);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
+    <div className="min-h-screen bg-theme-bg text-theme-text">
       <Router basename={ROUTER_BASENAME}>
         <AppContent />
       </Router>

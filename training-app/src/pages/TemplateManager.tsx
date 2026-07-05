@@ -18,8 +18,7 @@ export function TemplateManager() {
   const removeTemplate = useTrainingStore((s) => s.removeTemplate);
   const duplicateTemplate = useTrainingStore((s) => s.duplicateTemplate);
   const updateTemplate = useTrainingStore((s) => s.updateTemplate);
-  const setActiveTemplate = useTrainingStore((s) => s.setActiveTemplate);
-  const activeId = useTrainingStore((s) => s.activeTemplateId);
+  
 
   const [editing, setEditing] = useState<Template | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{
@@ -47,7 +46,6 @@ export function TemplateManager() {
       createdAt: Date.now(),
     };
     addTemplate(tpl);
-    setActiveTemplate(tpl.id);
     setEditing(tpl);
   };
 
@@ -84,8 +82,8 @@ export function TemplateManager() {
   return (
     <div className="mx-auto w-full max-w-2xl pb-28">
       <div className="px-4 pt-6">
-        <h1 className="text-2xl font-bold text-white">训练模板</h1>
-        <p className="mt-1 text-sm text-slate-400">
+        <h1 className="text-2xl font-bold text-theme-text">训练模板</h1>
+        <p className="mt-1 text-sm text-theme-text-muted">
           所有模板保存在本地浏览器中，可随时编辑和导入
         </p>
       </div>
@@ -96,40 +94,35 @@ export function TemplateManager() {
           return (
             <div
               key={t.id}
-              className={cn(
-                'rounded-2xl border p-4 transition-colors',
-                t.id === activeId
-                  ? 'border-emerald-500/60 bg-emerald-500/10'
-                  : 'border-slate-800 bg-slate-900/60'
-              )}
+              className="rounded-2xl border border-theme-border bg-theme-bg-card p-4 transition-colors hover:border-theme-accent hover:bg-theme-accent-light"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <input
                     value={t.name}
                     onChange={(e) => updateTemplate(t.id, { name: e.target.value })}
-                    className="w-full bg-transparent text-base font-semibold text-white outline-none placeholder:text-slate-500"
+                    className="w-full bg-transparent text-base font-semibold text-theme-text outline-none placeholder:text-theme-text-muted"
                   />
-                  <div className="mt-1 flex items-center gap-2 text-xs text-slate-400">
+                  <div className="mt-1 flex items-center gap-2 text-xs text-theme-text-muted">
                     <span>{t.drills.length} 个环节</span>
                     <span>·</span>
                     <span>总时长 {formatDuration(total)}</span>
                   </div>
                   {t.description && (
-                    <p className="mt-1 text-xs text-slate-500">{t.description}</p>
+                    <p className="mt-1 text-xs text-theme-text-muted">{t.description}</p>
                   )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <button
                     onClick={() => setEditing(t)}
-                    className="rounded-lg bg-slate-800 p-2 text-slate-300 hover:bg-slate-700"
+                    className="rounded-lg p-2 bg-theme-bg-card-subtle text-theme-text-secondary transition-colors hover:bg-theme-bg-card"
                     aria-label="编辑"
                   >
                     <Edit3 className="h-4 w-4" />
                   </button>
                   <button
                     onClick={() => duplicateTemplate(t.id)}
-                    className="rounded-lg bg-slate-800 p-2 text-slate-300 hover:bg-slate-700"
+                    className="rounded-lg p-2 bg-theme-bg-card-subtle text-theme-text-secondary transition-colors hover:bg-theme-bg-card"
                     aria-label="复制"
                   >
                     <Copy className="h-4 w-4" />
@@ -142,7 +135,7 @@ export function TemplateManager() {
                         title: t.name,
                       })
                     }
-                    className="rounded-lg bg-slate-800 p-2 text-rose-400 hover:bg-rose-500/20"
+                    className="rounded-lg p-2 bg-theme-bg-card-subtle text-theme-danger transition-colors hover:bg-theme-danger/20"
                     aria-label="删除"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -169,23 +162,26 @@ export function TemplateManager() {
                       templateId: t.id,
                       drillId,
                       cueId,
-                      title: '该条教学话术',
+                      title: '该条注意要点',
                     })
                   }
                 />
               )}
 
               {editing?.id !== t.id && (
-                <div className="mt-3 space-y-1">
-                  {t.drills.map((d) => (
+                <div className="mt-3">
+                  {t.drills.map((d, idx) => (
                     <div
                       key={d.id}
-                      className="flex items-center justify-between rounded-lg bg-slate-950/40 px-3 py-2 text-sm"
+                      className={cn(
+                        'flex items-center justify-between rounded-lg bg-theme-bg-card-subtle px-3 py-2 text-sm',
+                        idx > 0 && 'border-t border-theme-border/50'
+                      )}
                     >
-                      <div className="flex items-center gap-2 text-slate-200">
+                      <div className="flex items-center gap-2 text-theme-text-secondary">
                         <span className="truncate">{d.title}</span>
                       </div>
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-theme-text-muted">
                         {formatDuration(d.duration)}
                       </span>
                     </div>
@@ -198,7 +194,7 @@ export function TemplateManager() {
 
         <button
           onClick={createNew}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/30 px-4 py-4 text-sm text-slate-400 transition-colors hover:border-emerald-500/50 hover:bg-emerald-500/5 hover:text-emerald-400"
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-theme-border bg-theme-bg-secondary-subtle px-4 py-4 text-sm text-theme-text-muted transition-colors hover:border-theme-accent/50 hover:bg-theme-accent/5 hover:text-theme-accent"
         >
           <Plus className="h-4 w-4" />
           新建模板
@@ -218,7 +214,7 @@ export function TemplateManager() {
         }
         description={
           confirmDelete?.target === 'template'
-            ? '删除后无法恢复，模板下的所有环节和话术都会一起移除。'
+            ? '删除后无法恢复，模板下的所有环节和要点都会一起移除。'
             : confirmDelete?.target === 'drill'
             ? '删除后无法恢复。'
             : undefined
@@ -274,14 +270,14 @@ function DrillEditor({
   };
 
   return (
-    <div className="mt-3 space-y-2 rounded-xl border border-slate-700 bg-slate-950/50 p-3">
+    <div className="mt-3 space-y-2 rounded-xl border border-theme-border bg-theme-bg-card-subtle p-3">
       <div className="flex items-center justify-between">
-        <div className="text-xs font-medium uppercase tracking-wider text-slate-400">
+        <div className="text-xs font-medium uppercase tracking-wider text-theme-text-muted">
           编辑环节
         </div>
         <button
           onClick={onClose}
-          className="flex items-center gap-1 rounded-lg bg-emerald-500/20 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/30"
+          className="flex items-center gap-1 rounded-lg bg-theme-accent/20 px-2 py-1 text-xs text-theme-accent hover:bg-theme-accent/30"
         >
           <Check className="h-3 w-3" />
           完成
@@ -291,43 +287,46 @@ function DrillEditor({
       {template.drills.map((d, idx) => (
         <div
           key={d.id}
-          className="rounded-lg border border-slate-800 bg-slate-900/60 p-2"
+          className={cn(
+            'rounded-lg border border-theme-border bg-theme-bg-card-light p-2',
+            idx > 0 && 'mt-2'
+          )}
         >
           <div className="flex items-center gap-1">
             <button
               onClick={() => moveUp(idx)}
               disabled={idx === 0}
-              className="rounded p-1 text-xs text-slate-400 hover:bg-slate-800 disabled:opacity-30"
+              className="rounded p-1 text-xs text-theme-text-muted hover:bg-theme-bg-card disabled:opacity-30"
             >
               ↑
             </button>
             <button
               onClick={() => moveDown(idx)}
               disabled={idx >= template.drills.length - 1}
-              className="rounded p-1 text-xs text-slate-400 hover:bg-slate-800 disabled:opacity-30"
+              className="rounded p-1 text-xs text-theme-text-muted hover:bg-theme-bg-card disabled:opacity-30"
             >
               ↓
             </button>
             <input
               value={d.title}
               onChange={(e) => updateDrill(d.id, { title: e.target.value })}
-              className="flex-1 rounded-md bg-slate-950 px-2 py-1 text-sm text-white outline-none"
+              className="flex-1 rounded-md bg-theme-bg-card px-2 py-1 text-sm text-theme-text outline-none"
               placeholder="环节名称"
             />
             <input
               type="number"
               value={d.duration}
               onChange={(e) =>
-                updateDrill(d.id, { duration: Math.max(5, parseInt(e.target.value) || 0) })
+                updateDrill(d.id, { duration: Math.max(1, parseInt(e.target.value) || 0) })
               }
-              className="w-16 rounded-md bg-slate-950 px-2 py-1 text-sm text-white outline-none"
-              min={5}
-              step={5}
+              className="w-16 rounded-md bg-theme-bg-card px-2 py-1 text-sm text-theme-text outline-none"
+              min={1}
+              step={1}
             />
-            <span className="text-xs text-slate-500">秒</span>
+            <span className="text-xs text-theme-text-muted">秒</span>
             <button
               onClick={() => onDeleteDrill(d.id, d.title)}
-              className="rounded p-1 text-rose-400 hover:bg-rose-500/20"
+              className="rounded p-1 text-theme-danger hover:bg-theme-danger/20"
               aria-label="删除环节"
             >
               <Trash2 className="h-3 w-3" />
@@ -336,7 +335,7 @@ function DrillEditor({
           <input
             value={d.summary ?? ''}
             onChange={(e) => updateDrill(d.id, { summary: e.target.value })}
-            className="mt-1.5 w-full rounded-md bg-slate-950 px-2 py-1 text-xs text-slate-300 outline-none"
+            className="mt-1.5 w-full rounded-md bg-theme-bg-card px-2 py-1 text-xs text-theme-text-secondary outline-none"
             placeholder="一句话简介（可选）"
           />
           <div className="mt-1.5 space-y-1">
@@ -351,13 +350,13 @@ function DrillEditor({
                       ),
                     })
                   }
-                  className="flex-1 rounded-md bg-slate-950 px-2 py-1 text-xs text-slate-300 outline-none"
-                  placeholder="教学话术"
+                  className="flex-1 rounded-md bg-theme-bg-card px-2 py-1 text-xs text-theme-text-secondary outline-none"
+                  placeholder="注意要点"
                 />
                 <button
                   onClick={() => onDeleteCue(d.id, c.id)}
-                  className="rounded p-1 text-rose-400 hover:bg-rose-500/20"
-                  aria-label="删除话术"
+                  className="rounded p-1 text-theme-danger hover:bg-theme-danger/20"
+                  aria-label="删除要点"
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -372,9 +371,9 @@ function DrillEditor({
                   ],
                 })
               }
-              className="text-xs text-emerald-400 hover:text-emerald-300"
+              className="text-xs text-theme-accent hover:text-theme-accent-hover"
             >
-              + 添加话术
+              + 添加要点
             </button>
           </div>
         </div>
@@ -382,7 +381,7 @@ function DrillEditor({
 
       <button
         onClick={addDrill}
-        className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-slate-700 py-2 text-xs text-slate-400 hover:border-emerald-500/50 hover:text-emerald-400"
+        className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-theme-border py-2 text-xs text-theme-text-muted hover:border-theme-accent/50 hover:text-theme-accent"
       >
         <Plus className="h-3 w-3" />
         添加环节

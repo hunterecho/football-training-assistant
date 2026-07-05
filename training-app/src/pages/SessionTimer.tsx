@@ -296,10 +296,10 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   if (!template) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 p-6 text-center">
-        <div className="text-slate-400">还没有选中训练模板</div>
+        <div className="text-theme-text-muted">还没有选中训练模板</div>
         <button
           onClick={onBack}
-          className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+          className="rounded-xl bg-theme-accent text-white px-4 py-2 text-sm font-medium hover:bg-theme-accent-hover"
         >
           去计划页选择
         </button>
@@ -311,26 +311,26 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
     const totalSeconds = template ? template.drills.reduce((a, d) => a + d.duration, 0) : 0;
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center gap-6 p-6 text-center">
-        <div className="w-full max-w-sm rounded-3xl border border-slate-800 bg-slate-900/60 p-6">
-          <div className="text-xs uppercase tracking-widest text-emerald-400">
+        <div className="w-full max-w-sm rounded-3xl border border-theme-border bg-theme-bg-card-light p-6">
+          <div className="text-xs uppercase tracking-widest text-theme-accent">
             训练计时
           </div>
-          <div className="mt-2 text-2xl font-bold text-white">
+          <div className="mt-2 text-2xl font-bold text-theme-text">
             {template?.name ?? '未选择模板'}
           </div>
           {template && (
-            <div className="mt-2 flex items-center justify-center gap-2 text-sm text-slate-400">
+            <div className="mt-2 flex items-center justify-center gap-2 text-sm text-theme-text-muted">
               <span>{template.drills.length} 个环节</span>
               <span>·</span>
               <span>总时长 {formatDuration(totalSeconds)}</span>
             </div>
           )}
           {template?.description && (
-            <p className="mt-2 text-xs text-slate-500">{template.description}</p>
+            <p className="mt-2 text-xs text-theme-text-muted">{template.description}</p>
           )}
         </div>
 
-        <div className="flex flex-col items-center gap-2 text-slate-400">
+        <div className="flex flex-col items-center gap-2 text-theme-text-muted">
           <div className="text-sm">准备好了吗？</div>
           <div className="text-xs">点击下方按钮开始训练</div>
         </div>
@@ -338,7 +338,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
         <div className="flex gap-3">
           <button
             onClick={onBack}
-            className="rounded-xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm text-slate-300 hover:bg-slate-800"
+            className="rounded-xl border border-theme-border bg-theme-bg-card px-5 py-3 text-sm text-theme-text-secondary hover:bg-theme-bg-card"
           >
             返回
           </button>
@@ -347,7 +347,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
               startSessionRef.current(template!.id, 0);
             }}
             disabled={!template}
-            className="rounded-xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+            className="rounded-xl bg-theme-accent text-white px-6 py-3 text-sm font-semibold hover:bg-theme-accent-hover disabled:opacity-50"
           >
             开始训练
           </button>
@@ -365,11 +365,11 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
       <div className="flex items-center justify-between p-4">
         <button
           onClick={onBack}
-          className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+          className="rounded-lg bg-theme-bg-card px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-card"
         >
           返回
         </button>
-        <div className="text-sm text-slate-400">
+        <div className="text-sm text-theme-text-muted">
           {session.drillIndex + 1} / {totalDrills}
         </div>
         {/* 静音按钮在 header 右侧，避开 UserMenu */}
@@ -377,7 +377,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
           onClick={() => {
             setMuted((m) => !m);
           }}
-          className="rounded-lg bg-slate-900 p-2 text-slate-300 hover:bg-slate-800"
+          className="rounded-lg bg-theme-bg-card p-2 text-theme-text-secondary hover:bg-theme-bg-card"
           aria-label="静音切换"
           title={effectiveSpeechEnabled ? '静音' : '取消静音'}
         >
@@ -390,12 +390,12 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
       </div>
 
       <div className="px-4">
-        <div className="mb-2 text-center text-xs uppercase tracking-widest text-emerald-400">
+        <div className="mb-2 text-center text-xs uppercase tracking-widest text-theme-accent">
           当前环节
         </div>
-        <h1 className="text-center text-3xl font-bold text-white">{drill.title}</h1>
+        <h1 className="text-center text-3xl font-bold text-theme-text">{drill.title}</h1>
         {drill.summary && (
-          <p className="mt-1 text-center text-sm text-slate-400">{drill.summary}</p>
+          <p className="mt-1 text-center text-sm text-theme-text-muted">{drill.summary}</p>
         )}
       </div>
 
@@ -427,12 +427,12 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
           <div
             className={cn(
               'font-mono text-6xl font-bold tabular-nums',
-              session.remaining <= 5 ? 'text-red-400' : 'text-white'
+              session.remaining <= 5 ? 'text-red-400' : 'text-theme-text'
             )}
           >
             {formatDuration(session.remaining)}
           </div>
-          <div className="mt-2 text-xs text-slate-500">
+          <div className="mt-2 text-xs text-theme-text-muted">
             {session.status === 'running'
               ? '进行中'
               : session.status === 'paused'
@@ -450,7 +450,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
       <div className="mx-auto flex max-w-md items-center justify-center gap-3 px-4">
         <button
           onClick={() => { speech.clear(); prevDrillRef.current(); }}
-          className="flex h-14 w-14 items-center justify-center rounded-full border border-slate-700 text-slate-300 hover:bg-slate-800"
+          className="flex h-14 w-14 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
           aria-label="上一个环节"
         >
           <SkipBack className="h-5 w-5" />
@@ -468,7 +468,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
               nextDrillRef.current();
             }
           }}
-          className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400"
+          className="flex h-20 w-20 items-center justify-center rounded-full bg-theme-accent text-white shadow-lg shadow-theme-accent/30 hover:bg-theme-accent-hover"
         >
           {session.status === 'running' ? (
             <Pause className="h-8 w-8" />
@@ -478,7 +478,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
         </button>
         <button
           onClick={() => { speech.clear(); nextDrillRef.current(); }}
-          className="flex h-14 w-14 items-center justify-center rounded-full border border-slate-700 text-slate-300 hover:bg-slate-800"
+          className="flex h-14 w-14 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
           aria-label="下一个环节"
         >
           <SkipForward className="h-5 w-5" />
@@ -486,38 +486,37 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
       </div>
 
       {/* Cues */}
-      <div className="mx-auto mt-6 max-w-2xl px-4">
-        <div className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-          教学话术
-        </div>
-        <div className="max-h-60 space-y-2 overflow-y-auto rounded-2xl bg-slate-900/70 p-3">
-          {drill.cues.length === 0 && (
-            <div className="p-4 text-center text-sm text-slate-500">暂无话术</div>
-          )}
-          {drill.cues.map((c, idx) => (
+      {drill.cues.length > 0 && (
+        <div className="mx-auto mt-6 max-w-2xl px-4">
+          <div className="mb-2 text-xs font-medium uppercase tracking-wider text-theme-text-muted">
+            训练要点
+          </div>
+          <div className="space-y-2 rounded-2xl bg-theme-bg-card-muted p-3">
+            {drill.cues.map((c, idx) => (
             <div
               key={c.id}
               className={cn(
                 'rounded-xl border px-3 py-2 text-sm',
                 c.trigger === 'start'
-                  ? 'border-emerald-500/30 bg-emerald-500/5 text-slate-200'
-                  : 'border-slate-800 bg-slate-950/40 text-slate-300'
+                  ? 'border-theme-accent/30 bg-theme-accent/5 text-theme-text-secondary'
+                  : 'border-theme-border bg-theme-bg-card-faint text-theme-text-secondary'
               )}
             >
               <div className="flex items-start gap-2">
-                <span className="mt-0.5 text-xs text-slate-500">#{idx + 1}</span>
+                <span className="mt-0.5 text-xs text-theme-text-muted">#{idx + 1}</span>
                 <p className="flex-1 leading-relaxed">{c.text}</p>
               </div>
             </div>
           ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {isLast && (
         <div className="mx-auto mt-6 max-w-2xl px-4">
-          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-6 text-center">
-            <Trophy className="mx-auto mb-3 h-10 w-10 text-emerald-400" />
-            <div className="text-lg font-semibold text-white">训练完成！</div>
+          <div className="rounded-2xl border border-theme-accent/30 bg-theme-accent-light p-6 text-center">
+            <Trophy className="mx-auto mb-3 h-10 w-10 text-theme-text-secondary" />
+            <div className="text-lg font-semibold text-theme-text">训练完成！</div>
             <button
               onClick={() => {
                 if (recordIdRef.current && session.startedAt) {
@@ -533,7 +532,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
                 resetSession();
                 if (onBack) onBack();
               }}
-              className="mt-4 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+              className="mt-4 rounded-xl bg-theme-accent text-white px-4 py-2 text-sm font-medium hover:bg-theme-accent-hover"
             >
               返回计划页
             </button>
@@ -548,7 +547,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
             resetSession();
             if (onBack) onBack();
           }}
-          className="mx-auto flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300"
+          className="mx-auto flex items-center gap-1.5 text-xs text-theme-text-muted hover:text-theme-text-secondary"
         >
           <RotateCcw className="h-3 w-3" />
           重置训练

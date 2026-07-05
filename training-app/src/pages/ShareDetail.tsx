@@ -37,6 +37,7 @@ const mapTemplateFromServer = (t: any): Template => ({
     id: d.id ?? '',
     title: d.title ?? '',
     duration: d.duration ?? 0,
+    summary: d.summary ?? '',
     cues: (d.cues ?? []).map((c: any) => ({
       id: c.id ?? '',
       text: c.text ?? '',
@@ -389,8 +390,8 @@ export function ShareDetail() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6">
         <div className="text-6xl mb-4">🔗</div>
-        <h1 className="text-xl font-bold text-slate-200 mb-2">分享链接无效</h1>
-        <p className="text-slate-400 text-center">{error}</p>
+        <h1 className="text-xl font-bold text-theme-text-secondary mb-2">分享链接无效</h1>
+        <p className="text-theme-text-muted text-center">{error}</p>
       </div>
     );
   }
@@ -399,20 +400,20 @@ export function ShareDetail() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6">
         <div className="text-6xl mb-4">🚫</div>
-        <h1 className="text-xl font-bold text-slate-200 mb-2">该训练计划已终止</h1>
-        <p className="text-slate-400 text-center">计划创建者已终止此训练计划，无法继续执行</p>
+        <h1 className="text-xl font-bold text-theme-text-secondary mb-2">该训练计划已终止</h1>
+        <p className="text-theme-text-muted text-center">计划创建者已终止此训练计划，无法继续执行</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100">
+    <div className="min-h-screen bg-theme-bg text-theme-text">
       <div className="mx-auto w-full max-w-lg p-4">
         {sharerName && (
           <div className="flex items-center justify-center mb-3">
-            <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-900/60 backdrop-blur-sm px-3 py-1.5 rounded-full">
-              <UserCircle className="w-4 h-4 text-emerald-400" />
-              <span><span className="text-emerald-300 font-medium">{sharerName}</span> 分享的训练计划</span>
+            <div className="flex items-center gap-2 text-xs text-theme-text-muted bg-theme-bg-card-light backdrop-blur-sm px-3 py-1.5 rounded-full">
+              <UserCircle className="w-4 h-4 text-theme-accent" />
+              <span><span className="text-theme-accent font-medium">{sharerName}</span> 分享的训练计划</span>
             </div>
           </div>
         )}
@@ -423,21 +424,21 @@ export function ShareDetail() {
               resetSession();
               navigate('/login', { replace: true });
             }}
-            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 px-2 py-1 rounded transition-colors"
+            className="flex items-center gap-1 text-xs text-theme-text-muted hover:text-theme-text-secondary px-2 py-1 rounded transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
             退出登录
           </button>
         </div>
-        <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl p-6 mb-4">
+        <div className="bg-theme-bg-card-subtle backdrop-blur-sm rounded-2xl p-6 mb-4">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-xl font-bold">{plan.title}</h1>
-              <p className="text-slate-400 text-sm">{template.name}</p>
+              <p className="text-theme-text-muted text-sm">{template.name}</p>
             </div>
             <button
               onClick={handleShare}
-              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"
+              className="p-2 rounded-lg bg-theme-bg-card hover:bg-theme-bg-card transition-colors"
               title="分享"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -446,7 +447,7 @@ export function ShareDetail() {
             </button>
           </div>
           
-          <div className="flex items-center gap-6 text-sm text-slate-400">
+          <div className="flex items-center gap-6 text-sm text-theme-text-muted">
             <div className="flex items-center gap-2">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -467,19 +468,19 @@ export function ShareDetail() {
         </div>
 
         {isOwnInProgress && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 mb-4">
-            <div className="flex items-center gap-2 text-amber-400 text-sm mb-2">
+          <div className="bg-theme-warning/10 border border-theme-warning/30 rounded-2xl p-4 mb-4">
+            <div className="flex items-center gap-2 text-theme-warning text-sm mb-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <span className="font-medium">您有一个进行中的训练</span>
             </div>
-            <p className="text-slate-400 text-xs mb-3">
+            <p className="text-theme-text-muted text-xs mb-3">
               已完成 {inProgressRecord.completedDrills ?? 0}/{template.drills.length} 个环节
             </p>
             <button
               onClick={resumeSession}
-              className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-semibold text-sm transition-all"
+              className="w-full py-2.5 bg-theme-warning hover:bg-amber-600 text-white rounded-xl font-semibold text-sm transition-all"
             >
               继续训练
             </button>
@@ -487,10 +488,10 @@ export function ShareDetail() {
         )}
 
         {(session.status === 'idle' || session.status === 'ready' || session.status === 'finished') && !isOwnInProgress && (
-          <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl p-6 mb-4">
+          <div className="bg-theme-bg-card-subtle backdrop-blur-sm rounded-2xl p-6 mb-4">
             <div className="text-center py-8">
-              <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center">
+                <svg className="w-10 h-10 text-theme-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -498,7 +499,7 @@ export function ShareDetail() {
               <h2 className="text-lg font-semibold mb-2">
                 {session.status === 'finished' ? '本次训练已完成' : '准备开始训练'}
               </h2>
-              <p className="text-slate-400 text-sm mb-6">
+              <p className="text-theme-text-muted text-sm mb-6">
                 {session.status === 'finished'
                   ? '恭喜完成本次训练，点击下方按钮可再来一次'
                   : '点击下方按钮开始训练，语音指导将自动播放'}
@@ -506,7 +507,7 @@ export function ShareDetail() {
               <div className="flex gap-3">
                 <button
                   onClick={startSession}
-                  className="flex-1 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 rounded-xl font-semibold transition-all"
+                  className="flex-1 py-4 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-xl font-semibold transition-all"
                 >
                   {session.status === 'finished' ? '再来一次' : '开始训练'}
                 </button>
@@ -515,25 +516,25 @@ export function ShareDetail() {
           </div>
         )}
         {(session.status === 'running' || session.status === 'paused') && (
-          <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl p-6 mb-4">
+          <div className="bg-theme-bg-card-subtle backdrop-blur-sm rounded-2xl p-6 mb-4">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-lg font-semibold">训练进行中</h2>
-                <p className="text-slate-400 text-sm">
+                <p className="text-theme-text-muted text-sm">
                   {template.drills[session.drillIndex]?.title}
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-bold text-indigo-400">
+                <p className="text-2xl font-bold text-theme-accent">
                   {formatTime(session.remaining)}
                 </p>
-                <p className="text-slate-400 text-xs">
+                <p className="text-theme-text-muted text-xs">
                   {session.drillIndex + 1}/{template.drills.length}
                 </p>
               </div>
             </div>
 
-            <div className="relative w-full h-3 bg-slate-800 rounded-full overflow-hidden mb-6">
+            <div className="relative w-full h-3 bg-theme-bg-card rounded-full overflow-hidden mb-6">
               <div 
                 className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-100"
                 style={{ width: `${(session.remaining / (template.drills[session.drillIndex]?.duration || 1)) * 100}%` }}
@@ -544,7 +545,7 @@ export function ShareDetail() {
               {session.status === 'running' ? (
                 <button
                   onClick={pauseSession}
-                  className="w-16 h-16 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-all"
+                  className="w-16 h-16 rounded-full bg-theme-bg-card hover:bg-theme-bg-card flex items-center justify-center transition-all"
                 >
                   <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
@@ -553,7 +554,7 @@ export function ShareDetail() {
               ) : (
                 <button
                   onClick={resumeSession}
-                  className="w-16 h-16 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 flex items-center justify-center transition-all"
+                  className="w-16 h-16 rounded-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 flex items-center justify-center transition-all"
                 >
                   <svg className="w-8 h-8 ml-1" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M8 5v14l11-7z" />
@@ -563,7 +564,7 @@ export function ShareDetail() {
             </div>
 
             {speaking && (
-              <div className="mt-4 flex items-center justify-center gap-2 text-indigo-400">
+              <div className="mt-4 flex items-center justify-center gap-2 text-theme-accent">
                 <svg className="w-4 h-4 animate-pulse" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z" />
                 </svg>
@@ -576,14 +577,14 @@ export function ShareDetail() {
                 onClick={() => {
                   resetCurrentDrill();
                 }}
-                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                className="flex items-center gap-1.5 text-xs text-theme-text-muted hover:text-theme-text-secondary transition-colors"
               >
                 <RotateCcw className="w-3 h-3" />
                 重置当前环节
               </button>
               <button
                 onClick={() => setShowCancelConfirm(true)}
-                className="flex items-center gap-1.5 text-xs text-rose-500 hover:text-rose-300 transition-colors"
+                className="flex items-center gap-1.5 text-xs text-theme-danger hover:text-theme-danger transition-colors"
               >
                 <X className="w-3 h-3" />
                 取消训练
@@ -591,20 +592,20 @@ export function ShareDetail() {
             </div>
 
             {showCancelConfirm && (
-              <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 p-4">
-                <div className="text-sm text-rose-300 mb-3">
+              <div className="mt-4 rounded-lg border border-theme-danger/30 bg-theme-danger/10 p-4">
+                <div className="text-sm text-theme-danger mb-3">
                   确定要取消这次训练吗？训练记录将被删除。
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setShowCancelConfirm(false)}
-                    className="flex-1 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700"
+                    className="flex-1 rounded-lg bg-theme-bg-card px-4 py-2 text-sm font-medium text-theme-text-secondary hover:bg-theme-bg-card"
                   >
                     再想想
                   </button>
                   <button
                     onClick={cancelTraining}
-                    className="flex-1 rounded-lg bg-rose-500 px-4 py-2 text-sm font-medium text-white hover:bg-rose-400"
+                    className="flex-1 rounded-lg bg-theme-danger px-4 py-2 text-sm font-medium text-white hover:bg-theme-danger"
                   >
                     取消训练
                   </button>
@@ -614,7 +615,7 @@ export function ShareDetail() {
           </div>
         )}
 
-        <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl p-6 mb-4">
+        <div className="bg-theme-bg-card-subtle backdrop-blur-sm rounded-2xl p-6 mb-4">
           <h3 className="font-semibold mb-4 flex items-center gap-2">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -629,7 +630,7 @@ export function ShareDetail() {
               return (
                 <div 
                   key={drill.id}
-                  className={`bg-slate-800/50 rounded-xl overflow-hidden transition-all cursor-pointer ${
+                  className={`bg-theme-bg-card-subtle rounded-xl overflow-hidden transition-all cursor-pointer ${
                     isActive ? 'ring-2 ring-indigo-500' : ''
                   }`}
                   onClick={() => skipToDrill(index)}
@@ -638,10 +639,10 @@ export function ShareDetail() {
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
                         isActive 
-                          ? 'bg-indigo-500 text-white' 
+                          ? 'bg-theme-accent text-white' 
                           : isCompleted
-                            ? 'bg-green-500/20 text-green-400' 
-                            : 'bg-slate-700 text-slate-400'
+                            ? 'bg-theme-accent-light text-theme-accent' 
+                            : 'bg-theme-border text-theme-text-muted'
                       }`}>
                         {isCompleted ? (
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -652,11 +653,14 @@ export function ShareDetail() {
                         )}
                       </div>
                       <div>
-                        <p className={`font-medium text-sm ${isCompleted ? 'line-through text-slate-400' : ''}`}>{drill.title}</p>
-                        <p className="text-slate-500 text-xs">{formatDuration(drill.duration)}</p>
+                        <p className={`font-medium text-sm ${isCompleted ? 'line-through text-theme-text-muted' : ''}`}>{drill.title}</p>
+                        {drill.summary && (
+                          <p className="text-theme-text-muted text-xs mt-0.5 line-clamp-1">{drill.summary}</p>
+                        )}
+                        <p className="text-theme-text-muted text-xs">{formatDuration(drill.duration)}</p>
                       </div>
                     </div>
-                    <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-theme-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </div>
@@ -667,7 +671,7 @@ export function ShareDetail() {
         </div>
 
         {userRecords.length > 0 && (
-          <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl p-6 mb-4">
+          <div className="bg-theme-bg-card-subtle backdrop-blur-sm rounded-2xl p-6 mb-4">
             <h3 className="font-semibold mb-4 flex items-center gap-2">
               <Clock className="w-5 h-5" />
               我的训练记录 ({userRecords.length})
@@ -681,12 +685,12 @@ export function ShareDetail() {
         )}
 
         {showShareToast && (
-          <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-xl shadow-lg">
+          <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-theme-bg-card text-theme-text px-6 py-3 rounded-xl shadow-lg">
             链接已复制到剪贴板
           </div>
         )}
 
-        <div className="mt-6 text-center text-slate-500 text-xs">
+        <div className="mt-6 text-center text-theme-text-muted text-xs">
           <p>由训练助手提供支持</p>
         </div>
       </div>
@@ -703,28 +707,28 @@ function RecordItem({ record, template }: { record: TrainingRecord; template: Te
   return (
     <div className={`rounded-xl border p-3 ${
       isCompleted || isSkipped
-        ? 'border-slate-700 bg-slate-900/40'
+        ? 'border-theme-border bg-theme-bg-secondary-muted'
         : isInProgress
-        ? 'border-emerald-500/30 bg-emerald-500/5'
-        : 'border-slate-800 bg-slate-900/60'
+        ? 'border-theme-accent/30 bg-theme-accent/5'
+        : 'border-theme-border bg-theme-bg-card-light'
     }`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h4 className={`text-sm font-medium ${isCompleted || isSkipped ? 'text-slate-400 line-through' : 'text-white'}`}>
+          <h4 className={`text-sm font-medium ${isCompleted || isSkipped ? 'text-theme-text-muted line-through' : 'text-theme-text'}`}>
             {record.title}
           </h4>
           {isInProgress && (
-            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">训练中</span>
+            <span className="rounded-full bg-theme-accent/20 px-2 py-0.5 text-[10px] font-medium text-theme-accent">训练中</span>
           )}
           {isCompleted && (
-            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">已完成</span>
+            <span className="rounded-full bg-theme-accent/20 px-2 py-0.5 text-[10px] font-medium text-theme-accent">已完成</span>
           )}
           {isSkipped && (
-            <span className="rounded-full bg-slate-700 px-2 py-0.5 text-[10px] font-medium text-slate-400">已跳过</span>
+            <span className="rounded-full bg-theme-border px-2 py-0.5 text-[10px] font-medium text-theme-text-muted">已跳过</span>
           )}
         </div>
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-400">
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-theme-text-muted">
         {record.startTime && (
           <span className="flex items-center gap-1">
             <Clock className="w-3 h-3" />

@@ -24,32 +24,32 @@ export function ConfirmDialog({
   if (!open) return null;
   const confirmClass =
     tone === 'danger'
-      ? 'bg-rose-500 hover:bg-rose-400 text-white'
-      : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950';
+      ? 'bg-theme-danger hover:bg-theme-danger text-white'
+      : 'bg-theme-accent hover:bg-theme-accent-hover text-white';
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6"
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"
+        className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3">
           <div
             className={
               tone === 'danger'
-                ? 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-500/20 text-rose-400'
-                : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400'
+                ? 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-theme-danger/20 text-theme-danger'
+                : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-theme-accent-light text-theme-text'
             }
           >
             <AlertTriangle className="h-5 w-5" />
           </div>
           <div className="flex-1">
-            <h3 className="text-base font-semibold text-white">{title}</h3>
+            <h3 className="text-base font-semibold text-theme-text">{title}</h3>
             {description && (
-              <p className="mt-1 text-sm text-slate-400">{description}</p>
+              <p className="mt-1 text-sm text-theme-text-muted">{description}</p>
             )}
           </div>
         </div>
@@ -57,7 +57,7 @@ export function ConfirmDialog({
         <div className="mt-5 flex gap-2">
           <button
             onClick={onCancel}
-            className="flex-1 rounded-xl border border-slate-700 bg-slate-800 py-2.5 text-sm text-slate-200 hover:bg-slate-700"
+            className="flex-1 rounded-xl border border-theme-border bg-theme-bg-card py-2.5 text-sm text-theme-text-secondary hover:bg-theme-bg-card"
           >
             {cancelText}
           </button>

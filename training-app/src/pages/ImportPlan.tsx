@@ -153,16 +153,16 @@ export function ImportPlan() {
   return (
     <div className="mx-auto w-full max-w-2xl pb-28">
       <div className="px-4 pt-6">
-        <h1 className="text-2xl font-bold text-white">文档导入</h1>
-        <p className="mt-1 text-sm text-slate-400">
+        <h1 className="text-2xl font-bold text-theme-text">文档导入</h1>
+        <p className="mt-1 text-sm text-theme-text-muted">
           把你的训练计划文档交给 AI 解析，自动生成训练模板
         </p>
       </div>
 
       <div className="mt-4 space-y-4 px-4">
         {/* Step 1: input */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-          <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-400">
+        <div className="rounded-2xl border border-theme-border bg-theme-bg-card-light p-4">
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-theme-text-muted">
             <FileText className="h-3 w-3" />
             第 1 步 · 上传或粘贴文档
           </div>
@@ -179,14 +179,14 @@ export function ImportPlan() {
             />
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-200 hover:border-slate-500"
+              className="flex items-center gap-1.5 rounded-lg border border-theme-border bg-theme-bg-card px-3 py-1.5 text-sm text-theme-text-secondary hover:border-theme-accent"
             >
               <FileUp className="h-4 w-4" />
               选择文件
             </button>
             <button
               onClick={useExample}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-200 hover:border-slate-500"
+              className="flex items-center gap-1.5 rounded-lg border border-theme-border bg-theme-bg-card px-3 py-1.5 text-sm text-theme-text-secondary hover:border-theme-accent"
             >
               <Sparkles className="h-4 w-4" />
               使用示例
@@ -198,7 +198,7 @@ export function ImportPlan() {
                   setDrills([]);
                   setStatus('idle');
                 }}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-400 hover:border-rose-500/50 hover:text-rose-400"
+                className="flex items-center gap-1.5 rounded-lg border border-theme-border bg-theme-bg-card px-3 py-1.5 text-sm text-theme-text-muted hover:border-theme-danger/50 hover:text-theme-danger"
               >
                 <RotateCcw className="h-4 w-4" />
                 清空
@@ -209,13 +209,13 @@ export function ImportPlan() {
             value={rawText}
             onChange={(e) => setRawText(e.target.value)}
             placeholder="把训练计划的文本粘贴到这里…支持 Markdown、纯文本、自然语言段落"
-            className="mt-2 h-40 w-full resize-y rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-emerald-500/50"
+            className="mt-2 h-40 w-full resize-y rounded-lg border border-theme-border bg-theme-bg-card p-3 text-sm text-theme-text-secondary outline-none placeholder:text-theme-text-muted focus:border-theme-accent/50"
           />
         </div>
 
         {/* Step 2: parse */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-          <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-400">
+        <div className="rounded-2xl border border-theme-border bg-theme-bg-card-light p-4">
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-theme-text-muted">
             <Wand2 className="h-3 w-3" />
             第 2 步 · 选择解析方式
           </div>
@@ -225,12 +225,12 @@ export function ImportPlan() {
               className={cn(
                 'flex-1 rounded-lg border px-3 py-2 text-sm transition-colors',
                 parsingMode === 'rule'
-                  ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
-                  : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500'
+                  ? 'border-theme-accent bg-theme-accent text-white'
+                  : 'border-theme-border bg-theme-bg-card text-theme-text-secondary hover:border-theme-accent hover:bg-theme-accent-light'
               )}
             >
               规则解析（离线）
-              <div className="mt-0.5 text-[11px] font-normal text-slate-500">
+              <div className={cn('mt-0.5 text-[11px] font-normal', parsingMode === 'rule' ? 'text-white/80' : 'text-theme-text-muted')}>
                 快速、稳定，支持 Markdown 与常见格式
               </div>
             </button>
@@ -239,12 +239,12 @@ export function ImportPlan() {
               className={cn(
                 'flex-1 rounded-lg border px-3 py-2 text-sm transition-colors',
                 parsingMode === 'llm'
-                  ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
-                  : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500'
+                  ? 'border-theme-accent bg-theme-accent text-white'
+                  : 'border-theme-border bg-theme-bg-card text-theme-text-secondary hover:border-theme-accent hover:bg-theme-accent-light'
               )}
             >
               LLM 解析（可选）
-              <div className="mt-0.5 text-[11px] font-normal text-slate-500">
+              <div className={cn('mt-0.5 text-[11px] font-normal', parsingMode === 'llm' ? 'text-white/80' : 'text-theme-text-muted')}>
                 需在设置中配置 API Key，理解更自由的格式
               </div>
             </button>
@@ -252,13 +252,13 @@ export function ImportPlan() {
           <button
             onClick={() => void runParse()}
             disabled={!rawText.trim() || status === 'parsing'}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-medium text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-theme-accent text-white px-4 py-2.5 text-sm font-medium hover:bg-theme-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Upload className="h-4 w-4" />
             {status === 'parsing' ? '解析中…' : '解析文档'}
           </button>
           {error && (
-            <div className="mt-2 flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-2 text-xs text-rose-300">
+            <div className="mt-2 flex items-start gap-2 rounded-lg border border-theme-danger/30 hover:bg-theme-danger/10 p-2 text-xs text-theme-danger">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -267,16 +267,16 @@ export function ImportPlan() {
 
         {/* Step 3: preview */}
         {status === 'done' && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+          <div className="rounded-2xl border border-theme-border bg-theme-bg-card-light p-4">
             <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-slate-400">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-theme-text-muted">
                 <Sparkles className="h-3 w-3" />
                 第 3 步 · 预览与微调（{drills.length} 个环节）
               </div>
             </div>
 
             {warnings.length > 0 && (
-              <div className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-300">
+              <div className="mb-2 rounded-lg border border-theme-warning/30 bg-theme-warning/5 p-2 text-xs text-theme-warning">
                 <div className="mb-0.5 font-medium">提示</div>
                 <ul className="list-disc space-y-0.5 pl-4">
                   {warnings.map((w, i) => (
@@ -290,34 +290,34 @@ export function ImportPlan() {
               value={templateName}
               onChange={(e) => setTemplateName(e.target.value)}
               placeholder="模板名称"
-              className="mb-2 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+              className="mb-2 w-full rounded-lg border border-theme-border bg-theme-bg-card px-3 py-2 text-sm text-theme-text outline-none focus:border-theme-accent/50"
             />
 
             <div className="space-y-2">
               {drills.map((d, idx) => (
                 <div
                   key={idx}
-                  className="rounded-lg border border-slate-800 bg-slate-950/50 p-2"
+                  className="rounded-lg border border-theme-border bg-theme-bg-card-subtle p-2"
                 >
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => moveDrill(idx, -1)}
                       disabled={idx === 0}
-                      className="rounded px-1.5 py-0.5 text-xs text-slate-400 hover:bg-slate-800 disabled:opacity-30"
+                      className="rounded px-1.5 py-0.5 text-xs text-theme-text-muted hover:bg-theme-bg-card disabled:opacity-30"
                     >
                       ↑
                     </button>
                     <button
                       onClick={() => moveDrill(idx, 1)}
                       disabled={idx >= drills.length - 1}
-                      className="rounded px-1.5 py-0.5 text-xs text-slate-400 hover:bg-slate-800 disabled:opacity-30"
+                      className="rounded px-1.5 py-0.5 text-xs text-theme-text-muted hover:bg-theme-bg-card disabled:opacity-30"
                     >
                       ↓
                     </button>
                     <input
                       value={d.drillName}
                       onChange={(e) => updateDrill(idx, { drillName: e.target.value })}
-                      className="flex-1 rounded-md bg-slate-900 px-2 py-1 text-sm text-white outline-none"
+                      className="flex-1 rounded-md bg-theme-bg-card px-2 py-1 text-sm text-theme-text outline-none"
                       placeholder="环节名称"
                     />
                     <input
@@ -325,19 +325,19 @@ export function ImportPlan() {
                       value={d.durationSeconds}
                       onChange={(e) =>
                         updateDrill(idx, {
-                          durationSeconds: Math.max(5, parseInt(e.target.value) || 0),
+                          durationSeconds: Math.max(1, parseInt(e.target.value) || 0),
                         })
                       }
-                      className="w-16 rounded-md bg-slate-900 px-2 py-1 text-sm text-white outline-none"
-                      min={5}
-                      step={5}
+                      className="w-16 rounded-md bg-theme-bg-card px-2 py-1 text-sm text-theme-text outline-none"
+                      min={1}
+                      step={1}
                     />
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-theme-text-muted">
                       {formatDurationChinese(d.durationSeconds)}
                     </span>
                     <button
                       onClick={() => removeDrill(idx)}
-                      className="rounded px-1.5 py-0.5 text-xs text-rose-400 hover:bg-rose-500/20"
+                      className="rounded px-1.5 py-0.5 text-xs text-theme-danger hover:bg-theme-danger/20"
                     >
                       ✕
                     </button>
@@ -345,7 +345,7 @@ export function ImportPlan() {
                   <input
                     value={d.summary ?? ''}
                     onChange={(e) => updateDrill(idx, { summary: e.target.value })}
-                    className="mt-1.5 w-full rounded-md bg-slate-900 px-2 py-1 text-xs text-slate-300 outline-none"
+                    className="mt-1.5 w-full rounded-md bg-theme-bg-card px-2 py-1 text-xs text-theme-text-secondary outline-none"
                     placeholder="一句话简介（可选）"
                   />
                   <div className="mt-1.5 space-y-1">
@@ -358,8 +358,8 @@ export function ImportPlan() {
                               cues: d.cues.map((x, j) => (j === ci ? e.target.value : x)),
                             })
                           }
-                          className="flex-1 rounded-md bg-slate-900 px-2 py-1 text-xs text-slate-300 outline-none"
-                          placeholder="教学话术"
+                          className="flex-1 rounded-md bg-theme-bg-card px-2 py-1 text-xs text-theme-text-secondary outline-none"
+                          placeholder="注意要点"
                         />
                         <button
                           onClick={() =>
@@ -367,7 +367,7 @@ export function ImportPlan() {
                               cues: d.cues.filter((_, j) => j !== ci),
                             })
                           }
-                          className="rounded px-1.5 py-0.5 text-xs text-rose-400 hover:bg-rose-500/20"
+                          className="rounded px-1.5 py-0.5 text-xs text-theme-danger hover:bg-theme-danger/20"
                         >
                           ✕
                         </button>
@@ -377,16 +377,16 @@ export function ImportPlan() {
                       onClick={() =>
                         updateDrill(idx, { cues: [...d.cues, ''] })
                       }
-                      className="text-xs text-emerald-400 hover:text-emerald-300"
+                      className="text-xs text-theme-accent hover:text-theme-accent-hover"
                     >
-                      + 添加话术
+                      + 添加要点
                     </button>
                   </div>
                 </div>
               ))}
               <button
                 onClick={addDrillRow}
-                className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-slate-700 py-2 text-xs text-slate-400 hover:border-emerald-500/50 hover:text-emerald-400"
+                className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-theme-border py-2 text-xs text-theme-text-muted hover:border-theme-accent/50 hover:text-theme-accent"
               >
                 + 添加环节
               </button>
@@ -394,7 +394,7 @@ export function ImportPlan() {
 
             <button
               onClick={saveTemplate}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-theme-accent text-white px-4 py-2.5 text-sm font-medium hover:bg-theme-accent-hover"
             >
               <Save className="h-4 w-4" />
               保存为模板并选中

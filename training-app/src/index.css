@@ -10,12 +10,44 @@
   }
 }
 
+:root {
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f7f7f7;
+  --color-bg-card: #ffffff;
+  --color-bg-hover: #f0f0f0;
+  --color-text: #333333;
+  --color-text-secondary: #666666;
+  --color-text-muted: #999999;
+  --color-accent: #10894E;
+  --color-accent-hover: #0E7A43;
+  --color-accent-light: #E6F5ED;
+  --color-accent-rgb: 16, 137, 78;
+  --color-border: #e5e5e5;
+  --color-border-light: #f0f0f0;
+  --color-success: #10894E;
+  --color-warning: #FF9500;
+  --color-danger: #FF4D4F;
+  --color-scrollbar: #d1d5db;
+  --color-bg-secondary-muted: #e8e8e8;
+  --color-bg-secondary-subtle: #f0f0f0;
+  --color-bg-card-muted: #fafafa;
+  --color-bg-card-light: #ffffffcc;
+  --color-bg-card-subtle: #f5f5f5;
+  --color-bg-card-faint: #fafafa;
+  --color-bg-card-hover-light: #f5f5f5;
+  --color-bg-bottom-nav: #ffffffcc;
+  --color-bg-bottom-nav-light: #ffffff80;
+  --color-bg-card-very-faint: #fafafa;
+  --color-bg-card-extra-faint: #f0f0f0;
+  --color-bg-secondary-light: #f7f7f7cc;
+}
+
 @layer base {
   html,
   body,
   #root {
     height: 100%;
-    background-color: #020617;
+    background-color: var(--color-bg);
   }
 
   body {
@@ -27,7 +59,7 @@
     -moz-osx-font-smoothing: grayscale;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
-    color: #e2e8f0;
+    color: var(--color-text);
   }
 
   * {
@@ -39,7 +71,6 @@
     cursor: pointer;
   }
 
-  /* Custom scrollbar for webkit */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -48,14 +79,13 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(148, 163, 184, 0.2);
+    background: var(--color-scrollbar);
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(148, 163, 184, 0.4);
+    background: var(--color-accent);
   }
 
-  /* Remove default number input arrows */
   input[type='number']::-webkit-inner-spin-button,
   input[type='number']::-webkit-outer-spin-button {
     -webkit-appearance: none;
@@ -71,5 +101,72 @@
   .font-mono {
     font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, SFMono-Regular, Menlo,
       Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  }
+}
+
+@layer components {
+  .theme-button {
+    @apply rounded-xl px-4 py-2 text-sm font-medium transition-all duration-300;
+  }
+  
+  .theme-button-primary {
+    @apply theme-button text-white shadow-lg;
+    background-color: var(--color-accent);
+    box-shadow: 0 10px 15px -3px rgba(var(--color-accent-rgb), 0.2);
+  }
+  
+  .theme-button-primary:hover {
+    background-color: var(--color-accent-hover);
+  }
+  
+  .theme-button-secondary {
+    @apply theme-button border;
+    background-color: var(--color-bg-card);
+    border-color: var(--color-border);
+    color: var(--color-text);
+  }
+  
+  .theme-button-secondary:hover {
+    background-color: var(--color-bg-hover);
+  }
+  
+  .theme-card {
+    @apply rounded-2xl border p-4 transition-all duration-300;
+    border-color: var(--color-border);
+    background-color: var(--color-bg-card);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+  
+  .theme-input {
+    @apply w-full rounded-xl border px-3 py-2 text-sm outline-none;
+    border-color: var(--color-border);
+    background-color: var(--color-bg-card);
+    color: var(--color-text);
+  }
+  
+  .theme-input::placeholder {
+    color: var(--color-text-muted);
+  }
+  
+  .theme-input:focus {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px rgba(var(--color-accent-rgb), 0.2);
+  }
+  
+  .theme-tab-active {
+    @apply rounded-xl px-3 py-2 text-white shadow-lg;
+    background-color: var(--color-accent);
+    box-shadow: 0 10px 15px -3px rgba(var(--color-accent-rgb), 0.2);
+  }
+  
+  .theme-tab-inactive {
+    @apply rounded-xl border px-3 py-2;
+    border-color: var(--color-border);
+    background-color: var(--color-bg-card);
+    color: var(--color-text);
+  }
+  
+  .theme-tab-inactive:hover {
+    background-color: var(--color-bg-hover);
   }
 }
