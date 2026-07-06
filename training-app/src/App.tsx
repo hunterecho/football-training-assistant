@@ -35,6 +35,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 function AppContent() {
   const user = useAuthStore((s) => s.user);
+  const location = useLocation();
   const settings = useSettingsStore((s) => s.settings);
   const syncFromServer = useTrainingStore((s) => s.syncFromServer);
 
@@ -70,8 +71,8 @@ function AppContent() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
-      {user && !window.location.pathname.startsWith('/share/') && <BottomNav />}
-      {user && !window.location.pathname.startsWith('/share/') && <FloatingSession />}
+      {user && !location.pathname.startsWith('/share/') && <BottomNav />}
+      {user && !location.pathname.startsWith('/share/') && <FloatingSession />}
     </>
   );
 }

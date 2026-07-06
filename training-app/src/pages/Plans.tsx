@@ -200,8 +200,21 @@ export function Plans() {
   const todayKey = toDateKey(new Date());
 
   const groupedPlans = useMemo(() => {
-    const futurePlans = plans.filter((p) => (p.status === 'planned' || p.status === 'terminated') && p.date && p.date >= todayKey);
-    const pastPlans = plans.filter((p) => (p.status === 'planned' || p.status === 'terminated') && p.date && p.date < todayKey);
+    const inProgressPlans = plans.filter(p => {
+      return (p.status === 'planned' || p.status === 'terminated') && 
+             records.some(r => r.planId === p.id && r.status === 'in_progress' && r.userId === user?.id);
+    });
+    
+    const futurePlans = plans.filter((p) => 
+      (p.status === 'planned' || p.status === 'terminated') && 
+      p.date && p.date >= todayKey &&
+      !inProgressPlans.some(ip => ip.id === p.id)
+    );
+    const pastPlans = plans.filter((p) => 
+      (p.status === 'planned' || p.status === 'terminated') && 
+      p.date && p.date < todayKey &&
+      !inProgressPlans.some(ip => ip.id === p.id)
+    );
     const completed = plans.filter((p) => p.status === 'completed');
     const skipped = plans.filter((p) => p.status === 'skipped');
 
@@ -220,12 +233,22 @@ export function Plans() {
     }
 
     return {
+      inProgress: inProgressPlans.sort((a, b) => {
+        const aDate = a.date || '';
+        const bDate = b.date || '';
+        const aIsPast = aDate < todayKey;
+        const bIsPast = bDate < todayKey;
+        if (aIsPast !== bIsPast) {
+          return aIsPast ? -1 : 1;
+        }
+        return aDate.localeCompare(bDate);
+      }),
       planned: Array.from(futureByDate.entries()).sort(([a], [b]) => a.localeCompare(b)),
       past: Array.from(pastByDate.entries()).sort(([a], [b]) => b.localeCompare(a)),
       completed: completed.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)),
       skipped: skipped.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)),
     };
-  }, [plans, todayKey]);
+  }, [plans, records, todayKey, user]);
 
   const hasAnyInProgress = records.some(r => r.status === 'in_progress' && r.userId === user?.id);
 
@@ -299,6 +322,53 @@ export function Plans() {
         </div>
       ) : (
         <div className="mt-4 space-y-8 px-4">
+          {groupedPlans.inProgress.length > 0 && (
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <Clock className="h-4 w-4 text-theme-warning" />
+                <span className="text-xs font-medium uppercase tracking-wider text-theme-text-muted">
+                  进行中的训练
+                </span>
+              </div>
+              <div className="space-y-3">
+                {groupedPlans.inProgress.map((plan) => {
+                  const planRecords = recordsByPlanId.get(plan.id) || [];
+                  return (
+                    <PlanWithRecordsCard
+                      key={plan.id}
+                      plan={plan}
+                      templates={templates}
+                      records={planRecords}
+                      isDetailsExpanded={expandedPlanDetails.has(plan.id)}
+                      isRecordsExpanded={expandedPlanRecords.has(plan.id)}
+                      onToggleDetails={() => togglePlanDetails(plan.id)}
+                      onToggleRecords={() => togglePlanRecords(plan.id)}
+                      onDeletePlan={() => setConfirmDelPlan(plan.id)}
+                      onTerminatePlan={() => setConfirmTerminatePlan(plan.id)}
+                      onStart={() => {
+                        handlePlanStart(plan.id, plan.templateId);
+                      }}
+                      session={session}
+                      expandedRecords={expandedRecords}
+                      onToggleRecordExpanded={(id) => toggleRecordExpanded(id)}
+                      onToggleRecordStatus={(id) => setConfirmToggleRecord(id)}
+                      onDeleteRecord={(id) => setConfirmDelRecord(id)}
+                      onRecordStart={(id, templateId) => {
+                        handleRecordStart(id, templateId);
+                      }}
+                      currentUserId={user?.id}
+                      onEditDate={handleEditPlanDate}
+                      hasAnyInProgress={hasAnyInProgress}
+                      shareMenuOpen={shareMenuOpen}
+                      setShareMenuOpen={setShareMenuOpen}
+                      isInProgressHighlight
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {groupedPlans.planned.length > 0 && (
             <div>
               <div className="mb-3 flex items-center gap-2">
@@ -592,6 +662,7 @@ function PlanWithRecordsCard({
   hasAnyInProgress,
   shareMenuOpen,
   setShareMenuOpen,
+  isInProgressHighlight,
 }: {
   plan: import('@/types').TrainingPlan;
   templates: import('@/types').Template[];
@@ -614,6 +685,7 @@ function PlanWithRecordsCard({
   hasAnyInProgress?: boolean;
   shareMenuOpen: string | null;
   setShareMenuOpen: (id: string | null) => void;
+  isInProgressHighlight?: boolean;
 }) {
   const tpl = templates.find((t) => t.id === plan.templateId);
   const isCompleted = plan.status === 'completed';
@@ -631,6 +703,8 @@ function PlanWithRecordsCard({
         'rounded-2xl border',
         isCompleted || isSkipped
           ? 'border-theme-border bg-theme-bg-secondary-muted opacity-70'
+          : isInProgressHighlight
+          ? 'border-theme-warning bg-theme-warning/10 shadow-md'
           : inProgressRecord
           ? 'border-theme-accent/30 bg-theme-accent/5'
           : 'border-theme-border bg-theme-bg-card-light'

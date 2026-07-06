@@ -17,6 +17,7 @@ import {
   Trophy,
   X,
   Timer,
+  ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -213,22 +214,6 @@ export function FloatingSession() {
 
     if (session.status === 'running' && session.remaining > 0) {
       const elapsed = drill.duration - session.remaining;
-      const elapsedMinutes = Math.floor(elapsed / 60);
-      if (
-        elapsedMinutes >= 1 &&
-        !firedMinuteKeysRef.current.has(`m:${elapsedMinutes}`) &&
-        elapsed >= elapsedMinutes * 60
-      ) {
-        firedMinuteKeysRef.current.add(`m:${elapsedMinutes}`);
-        const left = Math.max(0, Math.ceil(drill.duration - elapsed));
-        speech.enqueue(`已过 ${elapsedMinutes} 分钟，还剩 ${formatDurationChinese(left)}`);
-      }
-
-      if (!firedOneMinLeftRef.current && remainingInt <= 60 && remainingInt > 5) {
-        firedOneMinLeftRef.current = true;
-        speech.enqueue('还剩一分钟');
-      }
-
       if (!onlyTimerMode) {
         drill.cues
           .filter((c) => c.trigger === 'interval' && c.seconds)
@@ -533,6 +518,82 @@ export function FloatingSession() {
                           </div>
                         </div>
                       ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Next Drill Preview */}
+                  {template && session.drillIndex < template.drills.length - 1 && !isLast && (
+                    <div className="mt-6">
+                      <div className="mb-3 flex items-center justify-center gap-1.5">
+                        <ArrowRight className="h-3 w-3 text-theme-accent" />
+                        <span className="text-xs font-medium uppercase tracking-wider text-theme-text-muted">
+                          下一环节预报
+                        </span>
+                        <ArrowRight className="h-3 w-3 text-theme-accent" />
+                      </div>
+                      <div className="space-y-2">
+                        {[1, 2].map((offset) => {
+                          const nextIdx = session.drillIndex + offset;
+                          if (nextIdx >= template.drills.length) return null;
+                          const nextDrill = template.drills[nextIdx];
+                          return (
+                            <div
+                              key={nextIdx}
+                              className={cn(
+                                'rounded-2xl border p-4',
+                                offset === 1
+                                  ? 'border-theme-accent/20 bg-theme-accent/5'
+                                  : 'border-theme-border bg-theme-bg-card-light'
+                              )}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium text-theme-text">
+                                    {nextDrill.title}
+                                  </div>
+                                  <div className="mt-0.5 text-xs text-theme-text-muted">
+                                    第 {nextIdx + 1} / {totalDrills} 环节
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <Timer className="h-3 w-3 text-theme-text-muted" />
+                                  <span className="text-xs font-mono text-theme-text-secondary">
+                                    {formatDuration(nextDrill.duration)}
+                                  </span>
+                                </div>
+                              </div>
+                              {nextDrill.summary && (
+                                <p className="mt-2 text-xs text-theme-text-muted line-clamp-2">
+                                  {nextDrill.summary}
+                                </p>
+                              )}
+                              {nextDrill.cues.length > 0 && (
+                                <div className="mt-3">
+                                  <div className="text-[10px] uppercase tracking-wider text-theme-text-muted mb-2">
+                                    要点预览
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    {nextDrill.cues.slice(0, 3).map((c, idx) => (
+                                      <div
+                                        key={c.id}
+                                        className="flex items-start gap-2 rounded-lg bg-theme-bg-card-faint px-2.5 py-1.5"
+                                      >
+                                        <span className="mt-0.5 text-[10px] text-theme-accent">#{idx + 1}</span>
+                                        <p className="text-xs text-theme-text-secondary line-clamp-1">{c.text}</p>
+                                      </div>
+                                    ))}
+                                    {nextDrill.cues.length > 3 && (
+                                      <div className="text-[10px] text-theme-text-muted text-center">
+                                        ...还有 {nextDrill.cues.length - 3} 条要点
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}

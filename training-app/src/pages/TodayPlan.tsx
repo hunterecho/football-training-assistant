@@ -80,12 +80,17 @@ export function TodayPlan() {
 
   const recentPlans = useMemo(() => {
     const sortedPlans = [...plans]
-      .filter(p => (p.status === 'planned' || p.status === 'terminated') && p.date && p.date >= todayKey)
+      .filter(p => (p.status === 'planned' || p.status === 'terminated') && p.date)
       .sort((a, b) => {
         const aInProgress = records.some(r => r.planId === a.id && r.status === 'in_progress' && r.userId === user?.id);
         const bInProgress = records.some(r => r.planId === b.id && r.status === 'in_progress' && r.userId === user?.id);
         if (aInProgress !== bInProgress) {
           return aInProgress ? -1 : 1;
+        }
+        const aIsPast = a.date && a.date < todayKey;
+        const bIsPast = b.date && b.date < todayKey;
+        if (aIsPast !== bIsPast) {
+          return aIsPast ? 1 : -1;
         }
         const aIsToday = a.date === todayKey;
         const bIsToday = b.date === todayKey;
@@ -126,16 +131,21 @@ export function TodayPlan() {
   const currentIndex =
     session.templateId === template?.id ? session.drillIndex : -1;
   const drillStatus = (idx: number): 'idle' | 'running' | 'paused' | 'done' => {
-    const planRecords = records.filter(r => r.planId === currentPlan?.id && r.userId === user?.id);
-    const completedRecord = planRecords.find(r => r.status === 'completed');
-    const inProgressRecord = planRecords.find(r => r.status === 'in_progress');
+    const planRecords = records
+      .filter(r => r.planId === currentPlan?.id && r.userId === user?.id)
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const latestRecord = planRecords[0];
 
-    if (completedRecord) {
+    if (!latestRecord) {
+      return 'idle';
+    }
+
+    if (latestRecord.status === 'completed') {
       return 'done';
     }
 
-    if (inProgressRecord && session.templateId === template?.id && activeRecordId === inProgressRecord.id) {
-      if (idx < (inProgressRecord.completedDrills ?? 0)) return 'done';
+    if (latestRecord.status === 'in_progress' && session.templateId === template?.id && activeRecordId === latestRecord.id) {
+      if (idx < (latestRecord.completedDrills ?? 0)) return 'done';
       if (idx === session.drillIndex) {
         if (session.status === 'finished' && session.remaining === 0) return 'done';
         if (session.status === 'idle') return 'idle';
@@ -341,6 +351,7 @@ export function TodayPlan() {
                       completedDrills: 0,
                       userId: user?.id || '',
                       status: 'in_progress' as const,
+                      startTime: Date.now(),
                     });
                     setTimeout(() => {
                       const newRecord = records.find(r => r.planId === currentPlan.id && r.status === 'in_progress' && r.userId === user?.id);
@@ -363,6 +374,7 @@ export function TodayPlan() {
                         completedDrills: 0,
                         userId: user?.id || '',
                         status: 'in_progress' as const,
+                        startTime: Date.now(),
                       });
                       setTimeout(() => {
                         const newRecord = records.find(r => r.planId === currentPlan.id && r.status === 'in_progress' && r.userId === user?.id);

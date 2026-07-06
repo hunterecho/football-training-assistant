@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { formatDuration, formatTime } from '@/utils/duration';
+import { formatDuration, formatTime, formatDurationChinese } from '@/utils/duration';
 import { useSpeech } from '@/hooks/useSpeech';
 import { useAuthStore } from '@/store/authStore';
 import { useTrainingStore } from '@/store/trainingStore';
@@ -99,7 +99,13 @@ export function ShareDetail() {
   const logout = useAuthStore((s) => s.logout);
   const resetSession = useTrainingStore((s) => s.resetSession);
   
-  const { speak, stop, speaking } = useSpeech({ enabled: true });
+  const { speak, enqueue, stop, clear, speaking, resume } = useSpeech({ enabled: true });
+
+  const firedCueKeysRef = useRef<Set<string>>(new Set());
+  const firedMinuteKeysRef = useRef<Set<string>>(new Set());
+  const firedOneMinLeftRef = useRef<boolean>(false);
+  const startedDrillRef = useRef<string>('');
+  const prevDrillIndexRef = useRef<number>(session.drillIndex);
 
   useEffect(() => {
     if (!planId) {
@@ -133,20 +139,6 @@ export function ShareDetail() {
             setCurrentRecordId(inProgress.id);
             const completed = inProgress.completedDrills ?? 0;
             setCompletedDrillsCount(completed);
-            if (template) {
-              const drillIndex = completed;
-              const drill = template.drills[drillIndex];
-              setSession({
-                ...initialSession,
-                templateId: template.id,
-                drillIndex,
-                remaining: drill?.duration ?? 0,
-                status: 'paused',
-                startedAt: inProgress.startTime ? new Date(inProgress.startTime).getTime() : Date.now(),
-                lastTickTs: null,
-                drillStartedAt: Date.now(),
-              });
-            }
           }
         }
       } catch {
@@ -158,6 +150,27 @@ export function ShareDetail() {
     
     fetchData();
   }, [planId, token]);
+
+  useEffect(() => {
+    if (!template || !userRecords.length || session.status !== 'idle') return;
+    
+    const inProgress = userRecords.find(r => r.status === 'in_progress' && r.userId === user?.id);
+    if (inProgress) {
+      const completed = inProgress.completedDrills ?? 0;
+      const drillIndex = completed;
+      const drill = template.drills[drillIndex];
+      setSession({
+        ...initialSession,
+        templateId: template.id,
+        drillIndex,
+        remaining: drill?.duration ?? 0,
+        status: 'paused',
+        startedAt: inProgress.startTime ? new Date(inProgress.startTime).getTime() : Date.now(),
+        lastTickTs: null,
+        drillStartedAt: Date.now(),
+      });
+    }
+  }, [template, userRecords, user, session.status]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -183,22 +196,80 @@ export function ShareDetail() {
   }, [session.status]);
 
   useEffect(() => {
-    if (session.status === 'running' && template && session.drillIndex < template.drills.length) {
-      const drill = template.drills[session.drillIndex];
-      const elapsed = session.drillStartedAt ? (Date.now() - session.drillStartedAt) / 1000 : 0;
-      
-      drill.cues.forEach((cue) => {
-        if (cue.trigger === 'start' && elapsed < 1 && !speaking) {
-          speak(cue.text);
-        } else if (cue.trigger === 'timer' && cue.seconds !== undefined) {
-          const triggerTime = drill.duration - cue.seconds;
-          if (Math.abs(elapsed - triggerTime) < 0.5 && !speaking) {
-            speak(cue.text);
-          }
-        }
-      });
+    if (!template) return;
+    const drill = template.drills[session.drillIndex];
+    if (!drill) return;
+
+    if (prevDrillIndexRef.current !== session.drillIndex) {
+      clear();
+      prevDrillIndexRef.current = session.drillIndex;
     }
-  }, [session, template, speak, speaking]);
+
+    const drillKey = `${template.id}:${session.drillIndex}`;
+    if (startedDrillRef.current !== drillKey) {
+      startedDrillRef.current = drillKey;
+      firedCueKeysRef.current = new Set();
+      firedMinuteKeysRef.current = new Set();
+      firedOneMinLeftRef.current = false;
+    }
+
+    if (session.status === 'running' && session.remaining >= drill.duration - 0.05) {
+      const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
+      enqueue(intro);
+      
+      drill.cues
+        .filter((c) => c.trigger === 'start')
+        .forEach((c) => {
+          const key = `start:${c.id}`;
+          if (!firedCueKeysRef.current.has(key)) {
+            firedCueKeysRef.current.add(key);
+            enqueue(c.text);
+          }
+        });
+    }
+
+    const remainingInt = Math.max(0, Math.ceil(session.remaining));
+
+    if (session.status === 'running' && session.remaining > 0) {
+      const elapsed = drill.duration - session.remaining;
+
+      drill.cues
+        .filter((c) => c.trigger === 'interval' && c.seconds)
+        .forEach((c) => {
+          const key = `interval:${c.id}`;
+          if (c.seconds && elapsed >= c.seconds && !firedCueKeysRef.current.has(key)) {
+            firedCueKeysRef.current.add(key);
+            enqueue(c.text);
+          }
+        });
+
+      drill.cues
+        .filter((c) => c.trigger === 'periodic' && c.seconds && c.seconds > 0)
+        .forEach((c) => {
+          if (!c.seconds) return;
+          const key1 = `periodic:${c.id}:1`;
+          const key2 = `periodic:${c.id}:2`;
+          if (elapsed >= c.seconds && !firedCueKeysRef.current.has(key1)) {
+            firedCueKeysRef.current.add(key1);
+            enqueue(c.text);
+          } else if (elapsed >= c.seconds * 2 && !firedCueKeysRef.current.has(key2)) {
+            firedCueKeysRef.current.add(key2);
+            enqueue(c.text);
+          }
+        });
+    }
+  }, [session.status, session.drillIndex, session.remaining, template, enqueue, clear]);
+
+  useEffect(() => {
+    if (session.status === 'paused') {
+      stop();
+    } else if (session.status === 'running') {
+      try { window.speechSynthesis?.resume(); } catch { /* noop */ }
+      resume();
+    } else if (session.status === 'idle' || session.status === 'ready') {
+      clear();
+    }
+  }, [session.status, stop, resume, clear]);
 
   useEffect(() => {
     if (session.status === 'finished' && template) {
@@ -269,10 +340,6 @@ export function ShareDetail() {
     const drill = template.drills[0];
     if (!drill) return;
     
-    if (!user) {
-      await login('guest_' + Date.now());
-    }
-    
     const recordId = await createRecord();
     if (recordId) {
       setCurrentRecordId(recordId);
@@ -302,7 +369,7 @@ export function ShareDetail() {
   const resumeSession = useCallback(() => {
     setSession((s) => {
       if (s.status !== 'paused' && s.status !== 'idle' && s.status !== 'ready') return s;
-      return { ...s, status: 'running' as const, lastTickTs: Date.now(), drillStartedAt: Date.now() };
+      return { ...s, status: 'running' as const, lastTickTs: Date.now() };
     });
   }, []);
 
@@ -344,18 +411,19 @@ export function ShareDetail() {
     if (!template) return;
     const drill = template.drills[index];
     if (!drill) return;
+    if (session.status === 'running' || session.status === 'paused') return;
     stop();
     setSession({
       ...initialSession,
       templateId: template.id,
       drillIndex: index,
       remaining: drill.duration,
-      status: session.status === 'running' ? 'running' : 'paused',
+      status: 'paused' as const,
       startedAt: session.startedAt ?? Date.now(),
-      lastTickTs: session.status === 'running' ? Date.now() : null,
+      lastTickTs: null,
       drillStartedAt: Date.now(),
     });
-  }, [template, session.status, session.startedAt, stop]);
+  }, [template, session.startedAt, stop]);
 
   const handleShare = () => {
     if (navigator.share) {
@@ -467,25 +535,7 @@ export function ShareDetail() {
           </div>
         </div>
 
-        {isOwnInProgress && (
-          <div className="bg-theme-warning/10 border border-theme-warning/30 rounded-2xl p-4 mb-4">
-            <div className="flex items-center gap-2 text-theme-warning text-sm mb-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <span className="font-medium">您有一个进行中的训练</span>
-            </div>
-            <p className="text-theme-text-muted text-xs mb-3">
-              已完成 {inProgressRecord.completedDrills ?? 0}/{template.drills.length} 个环节
-            </p>
-            <button
-              onClick={resumeSession}
-              className="w-full py-2.5 bg-theme-warning hover:bg-amber-600 text-white rounded-xl font-semibold text-sm transition-all"
-            >
-              继续训练
-            </button>
-          </div>
-        )}
+        
 
         {(session.status === 'idle' || session.status === 'ready' || session.status === 'finished') && !isOwnInProgress && (
           <div className="bg-theme-bg-card-subtle backdrop-blur-sm rounded-2xl p-6 mb-4">
@@ -536,7 +586,7 @@ export function ShareDetail() {
 
             <div className="relative w-full h-3 bg-theme-bg-card rounded-full overflow-hidden mb-6">
               <div 
-                className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-100"
+                className="h-full bg-theme-accent transition-all duration-100"
                 style={{ width: `${(session.remaining / (template.drills[session.drillIndex]?.duration || 1)) * 100}%` }}
               />
             </div>
@@ -631,7 +681,7 @@ export function ShareDetail() {
                 <div 
                   key={drill.id}
                   className={`bg-theme-bg-card-subtle rounded-xl overflow-hidden transition-all cursor-pointer ${
-                    isActive ? 'ring-2 ring-indigo-500' : ''
+                    isActive ? 'ring-2 ring-theme-accent' : ''
                   }`}
                   onClick={() => skipToDrill(index)}
                 >
