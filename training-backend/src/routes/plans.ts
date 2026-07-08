@@ -223,8 +223,11 @@ router.get('/', async (req, res) => {
       plans = await Promise.all(plans.map(async (plan: any) => {
         if (plan.template_id) {
           const templates = await dbSelect('templates', 'id', plan.template_id);
-          if (templates.length > 0 && templates[0].drills) {
-            return { ...plan, drills: templates[0].drills };
+          if (templates.length > 0) {
+            const template = templates[0] as any;
+            if (template.drills) {
+              return { ...plan, drills: template.drills };
+            }
           }
         }
         return plan;
