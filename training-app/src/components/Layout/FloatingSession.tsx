@@ -20,6 +20,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Drill } from '@/types';
 
 export function FloatingSession() {
   const [open, setOpen] = useState(false);
@@ -29,8 +30,7 @@ export function FloatingSession() {
   const records = useTrainingStore((s) => s.records);
   const activeRecordId = useTrainingStore((s) => s.activeRecordId);
   const activePlanId = useTrainingStore((s) => s.activePlanId);
-  const activeTemplateId = useTrainingStore((s) => s.activeTemplateId);
-  const templates = useTrainingStore((s) => s.templates);
+  const plans = useTrainingStore((s) => s.plans);
   const tickRaw = useTrainingStore((s) => s.tick);
   const nextDrillRaw = useTrainingStore((s) => s.nextDrill);
   const prevDrillRaw = useTrainingStore((s) => s.prevDrill);
@@ -60,18 +60,34 @@ export function FloatingSession() {
   });
   const { beep } = useBeep();
 
-  const template = useMemo(() => {
+  const sessionDrills = useMemo((): Drill[] => {
     if (activeRecordId) {
       const activeRecord = records.find((r) => r.id === activeRecordId);
       if (activeRecord) {
-        const tpl = templates.find((t) => t.id === activeRecord.templateId);
-        if (tpl) return tpl;
+        const plan = plans.find((p) => p.id === activeRecord.planId);
+        if (plan?.drills && plan.drills.length > 0) return plan.drills;
       }
     }
-    return templates.find((t) => t.id === activeTemplateId) ?? null;
-  }, [templates, activeTemplateId, activeRecordId, records]);
+    if (session.templateId) {
+      const plan = plans.find((p) => p.id === session.templateId);
+      if (plan?.drills && plan.drills.length > 0) return plan.drills;
+    }
+    return [];
+  }, [activeRecordId, records, plans, session.templateId]);
 
-  const drill = template?.drills[session.drillIndex] ?? null;
+  const sessionTitle = useMemo(() => {
+    if (activeRecordId) {
+      const activeRecord = records.find((r) => r.id === activeRecordId);
+      if (activeRecord) return activeRecord.title;
+    }
+    if (session.templateId) {
+      const plan = plans.find((p) => p.id === session.templateId);
+      if (plan) return plan.title;
+    }
+    return '训练详情';
+  }, [activeRecordId, records, plans, session.templateId]);
+
+  const drill = sessionDrills[session.drillIndex] ?? null;
 
   useEffect(() => {
     if (!settings.speechEnabled) {
@@ -104,11 +120,12 @@ export function FloatingSession() {
   const startedDrillRef = useRef<string>('');
   const prevDrillIndexRef = useRef<number>(session.drillIndex);
   const recordIdRef = useRef<string | null>(null);
+  const firedIntroRef = useRef<boolean>(false);
 
   useWakeLock(settings.keepScreenAwake && session.status === 'running');
 
   useEffect(() => {
-    if (session.status === 'running' && session.startedAt && template) {
+    if (session.status === 'running' && session.startedAt && sessionDrills.length > 0) {
       const currentUserId = useAuthStore.getState().user?.id;
       
       if (activeRecordId) {
@@ -120,7 +137,7 @@ export function FloatingSession() {
               status: 'in_progress',
               startTime: session.startedAt,
               durationSeconds: 0,
-              totalDrills: template.drills.length,
+              totalDrills: sessionDrills.length,
               completedDrills: session.drillIndex,
             });
           }
@@ -129,14 +146,14 @@ export function FloatingSession() {
       }
       
       const existingRecord = records.find(
-        r => r.templateId === template.id && r.status === 'in_progress' && r.userId === currentUserId
+        r => r.planId === activePlanId && r.status === 'in_progress' && r.userId === currentUserId
       );
       if (existingRecord) {
         recordIdRef.current = existingRecord.id;
         return;
       }
     }
-  }, [session.status, session.startedAt, template, activeRecordId, records, updateRecord]);
+  }, [session.status, session.startedAt, sessionDrills.length, activeRecordId, records, updateRecord, activePlanId]);
 
   useEffect(() => {
     if (session.status !== 'running') return;
@@ -163,11 +180,11 @@ export function FloatingSession() {
   }, [session.status]);
 
   useEffect(() => {
-    if (session.status === 'running' || session.status === 'paused') {
+    if ((session.status === 'running' || session.status === 'paused') && sessionDrills.length > 0) {
       setOpen(true);
       setSessionPanelOpen(true);
     }
-  }, [session.status, session.templateId]);
+  }, [session.status, session.templateId, sessionDrills.length]);
 
   useEffect(() => {
     if (sessionPanelOpen && (session.status === 'running' || session.status === 'paused' || session.status === 'finished')) {
@@ -176,14 +193,15 @@ export function FloatingSession() {
   }, [sessionPanelOpen]);
 
   useEffect(() => {
-    if (!template || !drill) return;
+    if (sessionDrills.length === 0 || !drill) return;
 
     if (prevDrillIndexRef.current !== session.drillIndex) {
       speech.clear();
       prevDrillIndexRef.current = session.drillIndex;
     }
 
-    const drillKey = `${template.id}:${session.drillIndex}`;
+    const sessionId = activePlanId ?? '';
+    const drillKey = `${sessionId}:${session.drillIndex}`;
     if (startedDrillRef.current !== drillKey) {
       startedDrillRef.current = drillKey;
       firedCueKeysRef.current = new Set();
@@ -191,9 +209,11 @@ export function FloatingSession() {
       firedOneMinLeftRef.current = false;
       lastEndedRef.current = false;
       lastFiveSecRef.current = 0;
+      firedIntroRef.current = false;
     }
 
-    if (session.status === 'running' && session.remaining >= drill.duration - 0.05) {
+    if (session.status === 'running' && session.remaining >= drill.duration - 0.05 && !firedIntroRef.current) {
+      firedIntroRef.current = true;
       const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
       speech.enqueue(intro);
       beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
@@ -257,7 +277,7 @@ export function FloatingSession() {
 
     if (session.status === 'finished' && !lastEndedRef.current) {
       lastEndedRef.current = true;
-      const isLast = session.drillIndex >= template.drills.length - 1;
+      const isLast = session.drillIndex >= sessionDrills.length - 1;
       if (isLast) {
         speech.enqueue('训练完成，大家辛苦了！');
         if (activeRecordId) {
@@ -267,7 +287,7 @@ export function FloatingSession() {
           }
         }
       } else {
-        const next = template.drills[session.drillIndex + 1];
+        const next = sessionDrills[session.drillIndex + 1];
         speech.enqueue(`${drill.title} 完成，准备进入 ${next?.title ?? '下一环节'}`);
       }
       beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
@@ -276,16 +296,16 @@ export function FloatingSession() {
         nextDrillRef.current();
       }, 1800);
     }
-  }, [session, drill, template, speech, beep, settings.soundEnabled]);
+  }, [session, drill, speech, beep, settings.soundEnabled]);
 
-  const isLast = session.status === 'finished' && session.drillIndex >= (template?.drills.length ?? 0) - 1;
+  const isLast = session.status === 'finished' && session.drillIndex >= sessionDrills.length - 1;
   const progress = !drill || drill.duration === 0 ? 0 : 1 - session.remaining / drill.duration;
-  const totalDrills = template?.drills.length ?? 0;
+  const totalDrills = sessionDrills.length;
 
   return (
     <>
       {/* Floating button - only show when training is active */}
-      {template && session.status !== 'idle' && (
+      {sessionDrills.length > 0 && session.status !== 'idle' && (
         <button
           onClick={() => setOpen(true)}
           className={cn(
@@ -322,9 +342,7 @@ export function FloatingSession() {
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-theme-border bg-white px-4 py-3">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-theme-text">
-                  {activeRecordId
-                    ? records.find(r => r.id === activeRecordId)?.title ?? template?.name
-                    : template?.name ?? '训练详情'}
+                  {sessionTitle}
                 </div>
                 {session.startedAt && (
                   <div className="mt-0.5 text-xs text-theme-text-muted">
@@ -342,36 +360,36 @@ export function FloatingSession() {
 
             {/* Panel content */}
             <div className="p-4 pb-28">
-              {!template || session.status === 'idle' || !drill ? (
+              {sessionDrills.length === 0 || session.status === 'idle' || !drill ? (
                 <div className="flex flex-col items-center gap-6 py-12 text-center">
                   <div className="w-full max-w-sm rounded-3xl border border-theme-border bg-white p-6">
                     <div className="text-xs uppercase tracking-widest text-theme-accent">
                       训练计时
                     </div>
                     <div className="mt-2 text-2xl font-bold text-theme-text">
-                      {template?.name ?? '未选择模板'}
+                      {sessionTitle}
                     </div>
-                    {template && (
+                    {sessionDrills.length > 0 && (
                       <div className="mt-2 flex items-center justify-center gap-2 text-sm text-theme-text-muted">
-                        <span>{template.drills.length} 个环节</span>
+                        <span>{sessionDrills.length} 个环节</span>
                         <span>·</span>
-                        <span>总时长 {formatDuration(template.drills.reduce((a, d) => a + d.duration, 0))}</span>
+                        <span>总时长 {formatDuration(sessionDrills.reduce((a, d) => a + d.duration, 0))}</span>
                       </div>
                     )}
                   </div>
                   <button
                     onClick={async () => {
-                      if (!template) return;
+                      if (sessionDrills.length === 0) return;
                       
                       if (!activeRecordId) {
                         const newRecordIdPromise = addRecord({
                           planId: activePlanId ?? undefined,
-                          templateId: template.id,
+                          templateId: undefined,
                           userId: useAuthStore.getState().user?.id ?? 'unknown',
-                          title: template.name,
+                          title: sessionTitle,
                           status: 'in_progress',
                           startTime: Date.now(),
-                          totalDrills: template.drills.length,
+                          totalDrills: sessionDrills.length,
                           completedDrills: 0,
                         });
                         const newRecordId = await newRecordIdPromise;
@@ -381,9 +399,10 @@ export function FloatingSession() {
                         }
                       }
                       
-                      startSessionRef.current(template.id, 0);
+                      const sessionId = activePlanId ?? '';
+                      startSessionRef.current(sessionId, 0);
                     }}
-                    disabled={!template}
+                    disabled={sessionDrills.length === 0}
                     className="rounded-xl bg-theme-accent text-white px-8 py-3 text-sm font-semibold hover:bg-theme-accent-hover disabled:opacity-50"
                   >
                     开始训练
@@ -523,7 +542,7 @@ export function FloatingSession() {
                   )}
 
                   {/* Next Drill Preview */}
-                  {template && session.drillIndex < template.drills.length - 1 && !isLast && (
+                  {sessionDrills.length > 0 && session.drillIndex < sessionDrills.length - 1 && !isLast && (
                     <div className="mt-6">
                       <div className="mb-3 flex items-center justify-center gap-1.5">
                         <ArrowRight className="h-3 w-3 text-theme-accent" />
@@ -535,8 +554,8 @@ export function FloatingSession() {
                       <div className="space-y-2">
                         {[1, 2].map((offset) => {
                           const nextIdx = session.drillIndex + offset;
-                          if (nextIdx >= template.drills.length) return null;
-                          const nextDrill = template.drills[nextIdx];
+                          if (nextIdx >= sessionDrills.length) return null;
+                          const nextDrill = sessionDrills[nextIdx];
                           return (
                             <div
                               key={nextIdx}
@@ -611,7 +630,7 @@ export function FloatingSession() {
                               status: 'completed',
                               endTime: Date.now(),
                               durationSeconds: Math.round(duration / 1000),
-                              completedDrills: template!.drills.length,
+                              completedDrills: sessionDrills.length,
                             });
                           }
                           speech.clear();

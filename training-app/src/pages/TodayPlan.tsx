@@ -1,5 +1,5 @@
-import { useMemo, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useMemo, useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTrainingStore, toDateKey } from '@/store/trainingStore';
 import { DrillCard } from '@/components/Plan/DrillCard';
 import { totalDuration } from '@/utils/duration';
@@ -12,12 +12,14 @@ import {
   Plus,
   ChevronLeft,
   ChevronRight as ChevronRightIcon,
+  Gift,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
+import { api } from '@/lib/api';
 
 export function TodayPlan() {
-  const templates = useTrainingStore((s) => s.templates);
   const plans = useTrainingStore((s) => s.plans);
   const records = useTrainingStore((s) => s.records);
   const session = useTrainingStore((s) => s.session);
@@ -32,26 +34,94 @@ export function TodayPlan() {
   const toggleRecordStatus = useTrainingStore((s) => s.toggleRecordStatus);
   const setSessionPanelOpen = useTrainingStore((s) => s.setSessionPanelOpen);
   const nextDrill = useTrainingStore((s) => s.nextDrill);
+  const setPlans = useTrainingStore((s) => s.setPlans);
+  const setSharePlanId = useTrainingStore((s) => s.setSharePlanId);
   const user = useAuthStore((s) => s.user);
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [showShareToast, setShowShareToast] = useState(false);
+  const [sharePlanInfo, setSharePlanInfo] = useState<{ planId: string; title: string; sharerName: string } | null>(null);
+
+  const selectedPlanId = useTrainingStore((s) => s.selectedPlanId);
+  const setSelectedPlanId = useTrainingStore((s) => s.setSelectedPlanId);
+  const hasAnyActiveSession = session.status !== 'idle' && records.some(r => (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id);
+
   useEffect(() => {
-    if (user) {
+    if (user && !searchParams.get('sharePlanId')) {
       syncFromServer();
     }
-  }, [user, syncFromServer]);
+  }, [user, syncFromServer, searchParams]);
+
+  useEffect(() => {
+    const sharePlanId = searchParams.get('sharePlanId');
+    if (sharePlanId && user) {
+      setSharePlanId(sharePlanId);
+      const checkAndLoadShare = async () => {
+        try {
+          const checkRes = await api.get<{ exists: boolean; terminated: boolean; sharerId: string | null }>(`/plans/check-share/${sharePlanId}`);
+          if (checkRes.data) {
+            if (!checkRes.data.exists) {
+              setSharePlanInfo({
+                planId: sharePlanId,
+                title: '该训练计划已被删除',
+                sharerName: '未知用户',
+              });
+              setShowShareToast(true);
+              return;
+            }
+            if (checkRes.data.terminated) {
+              setSharePlanInfo({
+                planId: sharePlanId,
+                title: '已停止分享',
+                sharerName: '未知用户',
+              });
+              setShowShareToast(true);
+              return;
+            }
+          }
+          
+          await syncFromServer(sharePlanId);
+          
+          setSharePlanInfo({
+            planId: sharePlanId,
+            title: '新训练计划',
+            sharerName: '未知用户',
+          });
+          setShowShareToast(true);
+          
+          if (!hasAnyActiveSession || session.status === 'finished') {
+            setTimeout(() => {
+              setSelectedPlanId(sharePlanId);
+            }, 300);
+          }
+        } catch (error) {
+          console.error('Failed to load share:', error);
+          setSharePlanInfo({
+            planId: sharePlanId,
+            title: '该训练计划已被删除',
+            sharerName: '未知用户',
+          });
+          setShowShareToast(true);
+        }
+      };
+      checkAndLoadShare();
+    }
+  }, [searchParams, user, syncFromServer, hasAnyActiveSession, session.status, setSharePlanId]);
 
   useEffect(() => {
     if (!user) return;
-    const inProgressRecord = records.find((r) => r.status === 'in_progress' && r.userId === user.id);
-    if (inProgressRecord && templates.length > 0) {
-      const tpl = templates.find((t) => t.id === inProgressRecord.templateId);
-      if (tpl && session.templateId !== inProgressRecord.templateId) {
-        const drillIndex = inProgressRecord.completedDrills ?? 0;
-        const drill = tpl.drills[drillIndex] || tpl.drills[0];
+    const inProgressRecord = records.find((r) => (r.status === 'in_progress' || r.status === 'paused') && r.userId === user.id);
+    if (inProgressRecord) {
+      const plan = plans.find((p) => p.id === inProgressRecord.planId);
+      const drills = plan?.drills || [];
+      
+      if (drills.length > 0 && session.templateId !== inProgressRecord.planId) {
+        const drillIndex = Math.min(inProgressRecord.completedDrills ?? 0, drills.length - 1);
+        const drill = drills[drillIndex] || drills[0];
         setActiveRecord(inProgressRecord.id);
         useTrainingStore.setState({
           session: {
-            templateId: inProgressRecord.templateId,
+            templateId: inProgressRecord.planId,
             drillIndex,
             remaining: drill?.duration ?? 0,
             status: 'paused',
@@ -62,7 +132,7 @@ export function TodayPlan() {
         });
       }
     }
-  }, [user, records, templates, session.templateId, setActiveRecord]);
+  }, [user, records, plans, session.templateId, setActiveRecord]);
 
   const today = new Date();
   const dateStr = today.toLocaleDateString('zh-CN', {
@@ -75,15 +145,15 @@ export function TodayPlan() {
 
   const todayPlan = plans.find((p) => p.date === todayKey && (p.status === 'planned' || p.status === 'terminated'));
   const todayRecord = records.find((r) =>
-    r.planId === todayPlan?.id && r.status === 'in_progress' && r.userId === user?.id
+    r.planId === todayPlan?.id && (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id
   );
 
   const recentPlans = useMemo(() => {
     const sortedPlans = [...plans]
       .filter(p => (p.status === 'planned' || p.status === 'terminated') && p.date)
       .sort((a, b) => {
-        const aInProgress = records.some(r => r.planId === a.id && r.status === 'in_progress' && r.userId === user?.id);
-        const bInProgress = records.some(r => r.planId === b.id && r.status === 'in_progress' && r.userId === user?.id);
+        const aInProgress = records.some(r => r.planId === a.id && (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id);
+        const bInProgress = records.some(r => r.planId === b.id && (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id);
         if (aInProgress !== bInProgress) {
           return aInProgress ? -1 : 1;
         }
@@ -102,11 +172,8 @@ export function TodayPlan() {
     return sortedPlans.slice(0, 5);
   }, [plans, records, user, todayKey]);
 
-  const selectedPlanId = useTrainingStore((s) => s.selectedPlanId);
-  const setSelectedPlanId = useTrainingStore((s) => s.setSelectedPlanId);
-
   const inProgressPlan = useMemo(() => {
-    const inProgressRecord = records.find(r => r.status === 'in_progress' && r.userId === user?.id);
+    const inProgressRecord = records.find(r => (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id);
     if (inProgressRecord) {
       return plans.find(p => p.id === inProgressRecord.planId);
     }
@@ -122,14 +189,14 @@ export function TodayPlan() {
     return todayPlan ?? recentPlans[0] ?? null;
   }, [currentPlanId, plans, todayPlan, recentPlans]);
 
-  const template = useMemo(() => {
-    if (!currentPlan) return null;
-    return templates.find((t) => t.id === currentPlan.templateId) ?? null;
-  }, [templates, currentPlan]);
+  const drills = useMemo(() => {
+    if (!currentPlan) return [];
+    return currentPlan.drills || [];
+  }, [currentPlan]);
 
-  const totalSeconds = template?.drills.reduce((a, d) => a + d.duration, 0) ?? 0;
+  const totalSeconds = drills.reduce((a, d) => a + d.duration, 0) ?? 0;
   const currentIndex =
-    session.templateId === template?.id ? session.drillIndex : -1;
+    session.templateId === currentPlan?.id ? session.drillIndex : -1;
   const drillStatus = (idx: number): 'idle' | 'running' | 'paused' | 'done' => {
     const planRecords = records
       .filter(r => r.planId === currentPlan?.id && r.userId === user?.id)
@@ -144,7 +211,11 @@ export function TodayPlan() {
       return 'done';
     }
 
-    if (latestRecord.status === 'in_progress' && session.templateId === template?.id && activeRecordId === latestRecord.id) {
+    const sessionMatchesPlan = session.templateId === currentPlan?.id;
+    const isActiveRecord = activeRecordId === latestRecord.id;
+    const isInProgressOrPaused = latestRecord.status === 'in_progress' || latestRecord.status === 'paused';
+    
+    if (isInProgressOrPaused && sessionMatchesPlan && isActiveRecord) {
       if (idx < (latestRecord.completedDrills ?? 0)) return 'done';
       if (idx === session.drillIndex) {
         if (session.status === 'finished' && session.remaining === 0) return 'done';
@@ -159,7 +230,7 @@ export function TodayPlan() {
   };
 
   const currentPlanRecord = records.find((r) =>
-    r.planId === currentPlan?.id && r.status === 'in_progress' && r.userId === user?.id
+    r.planId === currentPlan?.id && (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id
   );
 
   const completedRecord = records.find((r) =>
@@ -167,14 +238,12 @@ export function TodayPlan() {
   );
 
   const hasActive =
-    template && session.templateId === template.id && session.status !== 'idle' && currentPlanRecord;
-
-  const hasAnyActiveSession = session.status !== 'idle' && records.some(r => r.status === 'in_progress' && r.userId === user?.id);
+    session.status !== 'idle' && currentPlanRecord && session.templateId === currentPlan?.id;
 
   const handleFinishLast = () => {
     if (
       currentPlanRecord &&
-      session.templateId === currentPlanRecord.templateId &&
+      session.templateId === currentPlan?.id &&
       session.status === 'finished'
     ) {
       toggleRecordStatus(currentPlanRecord.id);
@@ -182,14 +251,16 @@ export function TodayPlan() {
   };
 
   const handlePlanSwitch = (planId: string) => {
-    if (hasAnyActiveSession && session.status !== 'finished') return;
     setSelectedPlanId(planId);
   };
 
   const handleDrillStart = async (drillIdx: number) => {
-    if (!template) return;
+    if (drills.length === 0) return;
     
-    if (hasAnyActiveSession && session.templateId === template.id) {
+    const sessionId = currentPlan?.id;
+    if (!sessionId) return;
+    
+    if (hasAnyActiveSession && session.templateId === sessionId) {
       if (session.status === 'paused' || session.status === 'ready') {
         resumeSession();
       }
@@ -199,7 +270,7 @@ export function TodayPlan() {
       return;
     }
 
-    if (hasAnyActiveSession && session.templateId !== template.id) {
+    if (hasAnyActiveSession && session.templateId !== sessionId) {
       return;
     }
 
@@ -210,17 +281,20 @@ export function TodayPlan() {
     } else if (currentPlan) {
       const newRecordId = await addRecord({
         planId: currentPlan.id,
-        templateId: template.id,
+        templateId: currentPlan.templateId,
         userId: user?.id || '',
         title: currentPlan.title,
         status: 'in_progress',
         startTime: Date.now(),
-        totalDrills: template.drills.length,
+        totalDrills: drills.length,
         completedDrills: 0,
+        sourcePlanId: currentPlan.sourcePlanId,
+        sharerName: currentPlan.sharerName,
+        sharerId: currentPlan.sourcePlanId ? currentPlan.sourcePlanId.split('_')[1] : undefined,
       });
       setActiveRecord(newRecordId);
     }
-    startSession(template.id, drillIdx);
+    startSession(sessionId, drillIdx);
   };
 
   const handleDrillPause = () => {
@@ -228,9 +302,9 @@ export function TodayPlan() {
   };
 
   const handleDrillSkip = (idx: number) => {
-    if (!template) return;
-    if (session.templateId === template.id && session.status !== 'idle') {
-      if (idx === template.drills.length - 1) {
+    if (!currentPlan) return;
+    if (session.templateId === currentPlan.id && session.status !== 'idle') {
+      if (idx === drills.length - 1) {
         nextDrill();
       } else {
         skipToDrill(idx + 1);
@@ -253,7 +327,7 @@ export function TodayPlan() {
             </div>
             <h1 className="mt-0.5 text-2xl font-bold text-theme-text">{dateStr}</h1>
           </div>
-          {template && (
+          {currentPlan && (
             <div className="rounded-2xl border border-theme-accent/30 bg-theme-accent-light px-4 py-2 text-right">
               <div className="text-[11px] uppercase tracking-wider text-theme-text-secondary">
                 预计时长
@@ -266,6 +340,35 @@ export function TodayPlan() {
         </div>
 
         {/* Plan Tabs */}
+        {showShareToast && sharePlanInfo && !(hasAnyActiveSession && session.status !== 'finished' && currentPlan?.id === sharePlanInfo.planId) && (
+          <div className="mt-4 rounded-2xl border border-theme-warning bg-theme-warning/10 p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-theme-warning text-white">
+                <Gift className="h-4 w-4" />
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-medium text-theme-text">收到新的训练计划邀请</div>
+              </div>
+              <button
+                onClick={() => {
+                  if (!hasAnyActiveSession || session.status === 'finished') {
+                    setShowShareToast(false);
+                    setSelectedPlanId(sharePlanInfo.planId);
+                  } else {
+                    if (confirm('查看新计划将取消当前进行中的训练，确定要继续吗？')) {
+                      setShowShareToast(false);
+                      setSelectedPlanId(sharePlanInfo.planId);
+                    }
+                  }
+                }}
+                className="shrink-0 rounded-lg bg-theme-warning px-3 py-1.5 text-xs font-medium text-white hover:bg-theme-warning/80"
+              >
+                {hasAnyActiveSession && session.status !== 'finished' ? '去查看' : '查看'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {recentPlans.length > 0 && (
           <div className="mt-4">
             <div className="flex items-center gap-2 mb-2">
@@ -276,10 +379,10 @@ export function TodayPlan() {
             </div>
             <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
               {recentPlans.map((plan) => {
-                const planTemplate = templates.find((t) => t.id === plan.templateId);
                 const isActive = plan.id === currentPlan?.id;
                 const isDisabled = hasAnyActiveSession && !isActive && session.status !== 'finished';
-                const planRecord = records.find(r => r.planId === plan.id && r.status === 'in_progress' && r.userId === user?.id);
+                const planRecord = records.find(r => r.planId === plan.id && (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id);
+                const isShared = !!plan.sourcePlanId;
                 
                 return (
                   <button
@@ -289,17 +392,24 @@ export function TodayPlan() {
                     className={cn(
                       'shrink-0 rounded-xl border px-3 py-2 text-left transition-all',
                       isActive
-                        ? 'border-theme-accent bg-theme-accent text-white shadow-lg'
+                        ? isShared
+                          ? 'border-theme-warning bg-theme-warning text-white shadow-lg'
+                          : 'border-theme-accent bg-theme-accent text-white shadow-lg'
                         : isDisabled
                         ? 'border-theme-border bg-theme-bg-secondary-muted opacity-50 cursor-not-allowed'
-                        : 'border-theme-border bg-theme-bg-card shadow-sm hover:border-theme-accent hover:bg-theme-accent-light'
+                        : isShared
+                          ? 'border-theme-warning/50 bg-theme-warning/10 shadow-sm hover:border-theme-warning hover:bg-theme-warning/20'
+                          : 'border-theme-border bg-theme-bg-card shadow-sm hover:border-theme-accent hover:bg-theme-accent-light'
                     )}
                   >
                     <div className="flex items-center gap-1.5">
                       {planRecord && (
-                        <span className="h-1.5 w-1.5 rounded-full bg-theme-accent animate-pulse" />
+                        <span className={cn('h-1.5 w-1.5 rounded-full animate-pulse', isActive && isShared ? 'bg-white' : 'bg-theme-accent')} />
                       )}
-                      <span className={cn('text-sm font-medium truncate max-w-[120px]', isActive ? 'text-white' : 'text-theme-text')}>
+                      {isShared && !isActive && (
+                        <Gift className={cn('h-3 w-3', isActive ? 'text-white/80' : 'text-theme-warning')} />
+                      )}
+                      <span className={cn('text-sm font-medium truncate max-w-[100px]', isActive ? 'text-white' : 'text-theme-text')}>
                         {plan.title}
                       </span>
                     </div>
@@ -307,9 +417,9 @@ export function TodayPlan() {
                       <CalendarCheck className="h-2.5 w-2.5" />
                       {plan.date === todayKey ? '今天' : plan.date}
                     </div>
-                    {planTemplate && (
-                      <div className={cn('mt-0.5 text-[10px] truncate max-w-[120px]', isActive ? 'text-white/80' : 'text-theme-text-secondary')}>
-                        {planTemplate.name}
+                    {isShared && plan.sharerName && (
+                      <div className={cn('mt-0.5 text-[10px] truncate max-w-[100px]', isActive ? 'text-white/80' : 'text-theme-warning')}>
+                        {plan.sharerName} 创建并分享
                       </div>
                     )}
                   </button>
@@ -319,7 +429,7 @@ export function TodayPlan() {
           </div>
         )}
 
-        {currentPlan && template && (
+        {currentPlan && drills.length > 0 && (
           <div className="mt-4 flex items-start gap-2 rounded-2xl border border-theme-accent/30 bg-theme-accent-light p-3">
             <CalendarCheck className="mt-0.5 h-4 w-4 shrink-0 text-theme-text-secondary" />
             <div className="min-w-0 flex-1">
@@ -327,7 +437,11 @@ export function TodayPlan() {
                 {currentPlan.title}
               </div>
               <div className="mt-0.5 flex items-center gap-2 text-xs text-theme-text-secondary">
-                <span>来自模板「{template.name}」</span>
+                {currentPlan.sharerName ? (
+                  <span>{currentPlan.sharerName} 创建并分享</span>
+                ) : (
+                  <span>训练计划</span>
+                )}
               </div>
               {currentPlan.note && (
                 <div className="mt-1 text-xs text-theme-text-muted">
@@ -338,6 +452,9 @@ export function TodayPlan() {
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() => {
+                  const sessionId = currentPlan?.id;
+                  if (!sessionId) return;
+                  
                   if (hasActive && session.status === 'running') {
                     pauseSession();
                   } else if (hasActive && session.status === 'paused') {
@@ -345,9 +462,9 @@ export function TodayPlan() {
                   } else if (completedRecord) {
                     addRecord({
                       planId: currentPlan.id,
-                      templateId: template.id,
+                      templateId: currentPlan.templateId,
                       title: currentPlan.title,
-                      totalDrills: template.drills.length,
+                      totalDrills: drills.length,
                       completedDrills: 0,
                       userId: user?.id || '',
                       status: 'in_progress' as const,
@@ -358,19 +475,19 @@ export function TodayPlan() {
                       if (newRecord) {
                         setActiveRecord(newRecord.id);
                       }
-                      startSession(template.id);
+                      startSession(sessionId);
                     }, 100);
                   } else {
                     const existingRecord = records.find(r => r.planId === currentPlan.id && r.status === 'in_progress' && r.userId === user?.id);
                     if (existingRecord) {
                       setActiveRecord(existingRecord.id);
-                      startSession(template.id);
+                      startSession(sessionId);
                     } else {
                       addRecord({
                         planId: currentPlan.id,
-                        templateId: template.id,
+                        templateId: currentPlan.templateId,
                         title: currentPlan.title,
-                        totalDrills: template.drills.length,
+                        totalDrills: drills.length,
                         completedDrills: 0,
                         userId: user?.id || '',
                         status: 'in_progress' as const,
@@ -381,20 +498,25 @@ export function TodayPlan() {
                         if (newRecord) {
                           setActiveRecord(newRecord.id);
                         }
-                        startSession(template.id);
+                        startSession(sessionId);
                       }, 100);
                     }
                   }
                   setSessionPanelOpen(true);
                 }}
+                disabled={hasAnyActiveSession && !hasActive}
                 className={cn(
-                  'shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium',
-                  hasActive && session.status === 'running'
+                  'shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors',
+                  hasAnyActiveSession && !hasActive
+                    ? 'bg-theme-bg-card text-theme-text-muted cursor-not-allowed'
+                    : hasActive && session.status === 'running'
                     ? 'bg-orange-500 text-white hover:bg-orange-600'
                     : 'bg-theme-accent text-white hover:bg-theme-accent-hover'
                 )}
               >
-                {hasActive && session.status === 'running'
+                {hasAnyActiveSession && !hasActive
+                  ? '训练中'
+                  : hasActive && session.status === 'running'
                   ? '暂停'
                   : hasActive && session.status === 'paused'
                   ? '继续'
@@ -414,12 +536,12 @@ export function TodayPlan() {
       </div>
 
       {/* Drills or No Plan Message */}
-      {currentPlan && template ? (
+      {currentPlan && drills.length > 0 ? (
         <div className="mt-6 space-y-3 px-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-theme-text-muted">
               <Dumbbell className="h-3 w-3" />
-              训练环节（{template.drills.length}）
+              训练环节（{drills.length}）
             </div>
             {hasAnyActiveSession && (
               <div className="text-xs text-theme-warning">
@@ -427,9 +549,10 @@ export function TodayPlan() {
               </div>
             )}
           </div>
-          {template.drills.map((drill, idx) => {
-            const isLast = idx === template.drills.length - 1;
-            const isActive = session.templateId === template.id && currentIndex === idx;
+          {drills.map((drill, idx) => {
+            const isLast = idx === drills.length - 1;
+            const sessionId = currentPlan.id;
+            const isActive = session.templateId === sessionId && currentIndex === idx;
             return (
               <DrillCard
                 key={drill.id}
@@ -456,7 +579,7 @@ export function TodayPlan() {
               </button>
             )}
         </div>
-      ) : !currentPlan && templates.length > 0 ? (
+      ) : !currentPlan && plans.length > 0 ? (
         <div className="mx-4 mt-8 rounded-2xl border border-dashed border-theme-border bg-theme-bg-secondary-muted p-8 text-center">
             <CalendarCheck className="mx-auto h-10 w-10 text-theme-text-muted" />
             <div className="mt-3 text-theme-text-secondary">还没有训练计划</div>
@@ -472,9 +595,9 @@ export function TodayPlan() {
             <ChevronRightIcon className="h-4 w-4" />
           </Link>
         </div>
-      ) : !currentPlan && templates.length === 0 ? (
+      ) : !currentPlan && plans.length === 0 ? (
         <div className="mx-4 mt-8 rounded-2xl border border-dashed border-theme-border bg-theme-bg-secondary-muted p-8 text-center">
-          <div className="mb-2 text-theme-text-secondary">还没有训练模板</div>
+          <div className="mb-2 text-theme-text-secondary">还没有训练计划</div>
           <Link
             to="/import"
             className="inline-flex items-center gap-1 rounded-xl bg-theme-accent text-white px-4 py-2 text-sm font-medium hover:bg-theme-accent-hover"

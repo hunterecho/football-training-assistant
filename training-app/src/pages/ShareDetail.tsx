@@ -665,29 +665,34 @@ export function ShareDetail() {
           </div>
         )}
 
-        <div className="bg-theme-bg-card-subtle backdrop-blur-sm rounded-2xl p-6 mb-4">
-          <h3 className="font-semibold mb-4 flex items-center gap-2">
+        <div className="bg-theme-bg-card-subtle backdrop-blur-sm rounded-2xl p-4 mb-4">
+          <div className="flex items-center gap-2 mb-4">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
-            训练目录
-          </h3>
+            <h3 className="font-semibold">训练目录</h3>
+          </div>
           
-          <div className="space-y-2">
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
             {template.drills.map((drill, index) => {
               const isActive = session.drillIndex === index;
               const isCompleted = index < completedDrillsCount;
               return (
-                <div 
+                <button 
                   key={drill.id}
-                  className={`bg-theme-bg-card-subtle rounded-xl overflow-hidden transition-all cursor-pointer ${
-                    isActive ? 'ring-2 ring-theme-accent' : ''
-                  }`}
                   onClick={() => skipToDrill(index)}
+                  disabled={session.status === 'running' || session.status === 'paused'}
+                  className={`flex-shrink-0 w-32 rounded-xl overflow-hidden transition-all text-left ${
+                    isActive 
+                      ? 'ring-2 ring-theme-accent bg-theme-accent/5' 
+                      : isCompleted
+                        ? 'bg-theme-accent-light/50' 
+                        : 'bg-theme-bg-card hover:bg-theme-bg-card-subtle'
+                  } ${(session.status === 'running' || session.status === 'paused') && !isActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                 >
-                  <div className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                  <div className="p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${
                         isActive 
                           ? 'bg-theme-accent text-white' 
                           : isCompleted
@@ -695,26 +700,22 @@ export function ShareDetail() {
                             : 'bg-theme-border text-theme-text-muted'
                       }`}>
                         {isCompleted ? (
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
                         ) : (
                           index + 1
                         )}
                       </div>
-                      <div>
-                        <p className={`font-medium text-sm ${isCompleted ? 'line-through text-theme-text-muted' : ''}`}>{drill.title}</p>
-                        {drill.summary && (
-                          <p className="text-theme-text-muted text-xs mt-0.5 line-clamp-1">{drill.summary}</p>
-                        )}
-                        <p className="text-theme-text-muted text-xs">{formatDuration(drill.duration)}</p>
-                      </div>
+                      <span className="text-xs text-theme-text-muted font-mono">
+                        {formatDuration(drill.duration)}
+                      </span>
                     </div>
-                    <svg className="w-4 h-4 text-theme-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
+                    <p className={`font-medium text-sm line-clamp-2 ${isCompleted ? 'line-through text-theme-text-muted' : 'text-theme-text'}`}>
+                      {drill.title}
+                    </p>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>

@@ -259,6 +259,8 @@ describe('API Tests', () => {
           title: 'Original Title',
           date: '2024-01-01',
         });
+      expect(createRes.status).toBe(200);
+      expect(createRes.body.plan).toBeDefined();
       const planId = createRes.body.plan.id;
 
       const res = await request(app)
@@ -341,6 +343,235 @@ describe('API Tests', () => {
       expect(res.body.plans).toHaveLength(10);
       expect(res.body.page).toBe(2);
       expect(res.body.pageSize).toBe(10);
+    });
+
+    it('should return drills data when creating a plan', async () => {
+      const res = await request(app)
+        .post('/api/plans')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          template_id: testTemplateIdForPlan,
+          title: 'Plan with Drills',
+          date: '2024-01-01',
+        });
+      expect(res.status).toBe(200);
+      expect(res.body.plan).toBeDefined();
+      expect(res.body.plan.drills).toBeDefined();
+      expect(Array.isArray(res.body.plan.drills)).toBe(true);
+      expect(res.body.plan.drills.length).toBeGreaterThan(0);
+    });
+
+    it('should return drills data in plans list', async () => {
+      const createRes = await request(app)
+        .post('/api/plans')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          template_id: testTemplateIdForPlan,
+          title: 'Plan with Drills',
+          date: '2024-01-01',
+        });
+      const planId = createRes.body.plan.id;
+
+      const res = await request(app)
+        .get('/api/plans?pageSize=100')
+        .set('Authorization', `Bearer ${testToken}`);
+      expect(res.status).toBe(200);
+      const planWithDrills = res.body.plans.find((p: any) => p.id === planId);
+      expect(planWithDrills).toBeDefined();
+      expect(planWithDrills.drills).toBeDefined();
+      expect(Array.isArray(planWithDrills.drills)).toBe(true);
+    });
+
+    it('should check share plan exists', async () => {
+      const createRes = await request(app)
+        .post('/api/plans')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          template_id: testTemplateIdForPlan,
+          title: 'Shareable Plan',
+          date: '2024-01-01',
+        });
+      const planId = createRes.body.plan.id;
+
+      const res = await request(app)
+        .get(`/api/plans/check-share/${planId}`)
+        .set('Authorization', `Bearer ${testToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.exists).toBe(true);
+      expect(res.body.terminated).toBe(false);
+      expect(res.body.sharerId).toBeDefined();
+    });
+
+    it('should return not exists for non-existent share plan', async () => {
+      const res = await request(app)
+        .get('/api/plans/check-share/non-existent-plan-id')
+        .set('Authorization', `Bearer ${testToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.exists).toBe(false);
+    });
+  });
+
+  describe('Plan Sharing Flow', () => {
+    let sharerToken: string;
+    let sharerPlanId: string;
+    let sharerTemplateId: string;
+    let receiverToken: string;
+
+    beforeEach(async () => {
+      const sharerRes = await request(app).post('/api/auth/mock').send({ nickname: 'SharerUser' });
+      sharerToken = sharerRes.body.token;
+
+      const templateRes = await request(app)
+        .post('/api/templates')
+        .set('Authorization', `Bearer ${sharerToken}`)
+        .send({
+          name: 'Share Template',
+          drills: [
+            { title: 'Drill 1', duration: 30, cues: ['Cue 1'] },
+            { title: 'Drill 2', duration: 45, cues: ['Cue 2'] },
+          ],
+        });
+      sharerTemplateId = templateRes.body.template.id;
+
+      const planRes = await request(app)
+        .post('/api/plans')
+        .set('Authorization', `Bearer ${sharerToken}`)
+        .send({
+          template_id: sharerTemplateId,
+          title: 'Shared Plan',
+          date: '2024-01-15',
+        });
+      sharerPlanId = planRes.body.plan.id;
+
+      const receiverRes = await request(app).post('/api/auth/mock').send({ nickname: 'ReceiverUser' });
+      receiverToken = receiverRes.body.token;
+    });
+
+    it('should check share plan as receiver', async () => {
+      const res = await request(app)
+        .get(`/api/plans/check-share/${sharerPlanId}`)
+        .set('Authorization', `Bearer ${receiverToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.exists).toBe(true);
+      expect(res.body.terminated).toBe(false);
+    });
+
+    it('should get shared plan details via records/share endpoint', async () => {
+      const res = await request(app)
+        .get(`/api/records/share/${sharerPlanId}`)
+        .set('Authorization', `Bearer ${receiverToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.plan).toBeDefined();
+      expect(res.body.template).toBeDefined();
+      expect(res.body.sharerName).toBe('SharerUser');
+      expect(res.body.terminated).toBe(false);
+    });
+
+    it('should return 404 for non-existent shared plan', async () => {
+      const res = await request(app)
+        .get('/api/records/share/non-existent-id')
+        .set('Authorization', `Bearer ${receiverToken}`);
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('Training Record Status Management', () => {
+    let testTemplateId: string;
+
+    beforeEach(async () => {
+      const res = await request(app)
+        .post('/api/templates')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          name: 'Status Test Template',
+          drills: [{ title: 'Drill', duration: 30 }],
+        });
+      testTemplateId = res.body.template.id;
+    });
+
+    it('should create record with planned status by default', async () => {
+      const res = await request(app)
+        .post('/api/records')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          template_id: testTemplateId,
+          title: 'Default Status Record',
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.record.status).toBe('planned');
+    });
+
+    it('should update record status to in_progress', async () => {
+      const createRes = await request(app)
+        .post('/api/records')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          template_id: testTemplateId,
+          title: 'Status Update Record',
+        });
+      const recordId = createRes.body.record.id;
+
+      const updateRes = await request(app)
+        .patch(`/api/records/${recordId}`)
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({ status: 'in_progress', start_time: new Date().toISOString() });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.record.status).toBe('in_progress');
+    });
+
+    it('should update record status to paused', async () => {
+      const createRes = await request(app)
+        .post('/api/records')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          template_id: testTemplateId,
+          title: 'Pause Record',
+          status: 'in_progress',
+        });
+      const recordId = createRes.body.record.id;
+
+      const updateRes = await request(app)
+        .patch(`/api/records/${recordId}`)
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({ status: 'paused' });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.record.status).toBe('paused');
+    });
+
+    it('should update record status to completed', async () => {
+      const createRes = await request(app)
+        .post('/api/records')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          template_id: testTemplateId,
+          title: 'Complete Record',
+          status: 'in_progress',
+        });
+      const recordId = createRes.body.record.id;
+
+      const updateRes = await request(app)
+        .patch(`/api/records/${recordId}`)
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({ 
+          status: 'completed', 
+          completed_drills: 1,
+          total_drills: 1,
+          end_time: new Date().toISOString(),
+          duration_seconds: 30
+        });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.record.status).toBe('completed');
+    });
+
+    it('should return error when creating record without title', async () => {
+      const res = await request(app)
+        .post('/api/records')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          template_id: testTemplateId,
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('title is required');
     });
   });
 

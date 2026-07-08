@@ -27,16 +27,20 @@ export type PlanStatus = 'planned' | 'completed' | 'skipped' | 'terminated';
 
 export type TrainingPlan = {
   id: string;
-  templateId: string;
+  userId?: string;
+  templateId?: string;
   title: string;
   date?: string;
   status: PlanStatus;
   note?: string;
+  drills?: Drill[];
   createdAt: number;
   completedAt?: number;
+  sourcePlanId?: string;
+  sharerName?: string;
 };
 
-export type RecordStatus = 'planned' | 'in_progress' | 'completed' | 'skipped';
+export type RecordStatus = 'planned' | 'in_progress' | 'completed' | 'skipped' | 'paused';
 
 export type RecordExecutor = {
   id: string;
@@ -47,7 +51,7 @@ export type RecordExecutor = {
 export type TrainingRecord = {
   id: string;
   planId: string;
-  templateId: string;
+  templateId?: string | null;
   userId: string;
   title: string;
   status: RecordStatus;
@@ -60,6 +64,9 @@ export type TrainingRecord = {
   createdAt: number;
   completedAt?: number;
   executor?: RecordExecutor;
+  sourcePlanId?: string;
+  sharerName?: string;
+  sharerId?: string;
 };
 
 export type SessionStatus = 'idle' | 'running' | 'paused' | 'finished' | 'ready';

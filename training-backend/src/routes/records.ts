@@ -216,7 +216,7 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { plan_id, template_id, title, status, start_time, end_time, duration_seconds, completed_drills, total_drills, note } = req.body as {
+    const { plan_id, template_id, title, status, start_time, end_time, duration_seconds, completed_drills, total_drills, note, source_plan_id, sharer_name, sharer_id } = req.body as {
       plan_id?: string;
       template_id?: string;
       title?: string;
@@ -227,6 +227,9 @@ router.post('/', async (req, res) => {
       completed_drills?: number;
       total_drills?: number;
       note?: string;
+      source_plan_id?: string;
+      sharer_name?: string;
+      sharer_id?: string;
     };
     if (!title) {
       res.status(400).json({ error: 'title is required' });
@@ -246,6 +249,9 @@ router.post('/', async (req, res) => {
         completed_drills,
         total_drills,
         note,
+        source_plan_id,
+        sharer_name,
+        sharer_id,
       },
       req.auth!.userId
     );

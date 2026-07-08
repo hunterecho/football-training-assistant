@@ -6,6 +6,8 @@ import { uid } from '@/utils/duration';
 import { api } from '@/lib/api';
 import { useAuthStore } from './authStore';
 
+let syncPromise: Promise<void> | null = null;
+
 type TrainingStore = {
   templates: Template[];
   plans: TrainingPlan[];
@@ -64,8 +66,10 @@ type TrainingStore = {
   resetCurrentDrill: () => void;
   tick: (nowTs: number) => void;
 
-  syncFromServer: () => Promise<void>;
-  fetchSharePlan: (planId: string) => Promise<{ plan: TrainingPlan; template: Template } | null>;
+  syncFromServer: (sharePlanId?: string) => Promise<void>;
+  fetchSharePlan: (planId: string) => Promise<{ plan: TrainingPlan } | null>;
+  sharePlanId: string | null;
+  setSharePlanId: (id: string | null) => void;
 };
 
 const initialSession: SessionState = {
@@ -106,11 +110,15 @@ const mapTemplateFromServer = (t: any): Template => ({
 
 const mapPlanFromServer = (p: any): TrainingPlan => ({
   id: p.id,
+  userId: p.user_id,
   templateId: p.template_id,
   title: p.title,
   date: p.date,
   status: (p.status ?? 'planned') as PlanStatus,
   note: p.note,
+  drills: p.drills,
+  sourcePlanId: p.source_plan_id,
+  sharerName: p.sharer_name,
   createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
   completedAt: p.completed_at ? new Date(p.completed_at).getTime() : undefined,
 });
@@ -137,21 +145,25 @@ const mapRecordFromServer = (r: any): TrainingRecord => ({
         avatar: r.executor.avatar ?? null,
       }
     : undefined,
+  sourcePlanId: r.source_plan_id,
+  sharerName: r.sharer_name,
+  sharerId: r.sharer_id,
 });
 
 export const useTrainingStore = create<TrainingStore>()(
   persist(
     (set, get) => ({
-      templates: [defaultTemplate],
+      templates: [],
       plans: [],
       records: [],
       session: initialSession,
-      activeTemplateId: defaultTemplate.id,
+      activeTemplateId: null,
       activePlanId: null,
       activeRecordId: null,
       synced: false,
       sessionPanelOpen: false,
       selectedPlanId: null,
+      sharePlanId: null,
       plansPage: 1,
       plansPageSize: 20,
       plansTotal: 0,
@@ -160,6 +172,7 @@ export const useTrainingStore = create<TrainingStore>()(
       templatesTotal: 0,
 
       setTemplates: (t) => set({ templates: t }),
+      setSharePlanId: (id) => set({ sharePlanId: id }),
       addTemplate: async (t) => {
         const tempId = t.id;
         set((s) => ({ templates: [...s.templates, t] }));
@@ -356,6 +369,9 @@ export const useTrainingStore = create<TrainingStore>()(
           note: record.note,
           createdAt: Date.now(),
           completedAt: record.completedAt,
+          sourcePlanId: record.sourcePlanId,
+          sharerName: record.sharerName,
+          sharerId: record.sharerId,
         };
         set((s) => ({ records: [newRecord, ...s.records], activeRecordId: tempId }));
         const token = useAuthStore.getState().token;
@@ -371,6 +387,9 @@ export const useTrainingStore = create<TrainingStore>()(
             completed_drills: record.completedDrills,
             total_drills: record.totalDrills,
             note: record.note,
+            source_plan_id: record.sourcePlanId,
+            sharer_name: record.sharerName,
+            sharer_id: record.sharerId,
           });
           if (res.error) {
             set((s) => ({
@@ -429,8 +448,10 @@ export const useTrainingStore = create<TrainingStore>()(
         const now = Date.now();
         const newEndTime = newStatus === 'completed' ? now : undefined;
         const newDuration = newStatus === 'completed' && record.startTime ? Math.round((now - record.startTime) / 1000) : record.durationSeconds;
-        const tpl = get().templates.find((t) => t.id === record.templateId);
-        const totalDrills = tpl ? tpl.drills.length : record.totalDrills;
+        const current = get();
+        const tpl = record.templateId ? current.templates.find((t) => t.id === record.templateId) : null;
+        const plan = current.plans.find((p) => p.id === record.planId);
+        const totalDrills = tpl?.drills.length ?? plan?.drills.length ?? record.totalDrills ?? 0;
         const completedDrills = newStatus === 'completed' ? totalDrills : record.completedDrills;
         get().updateRecord(id, {
           status: newStatus,
@@ -440,16 +461,17 @@ export const useTrainingStore = create<TrainingStore>()(
           totalDrills,
           completedAt: newStatus === 'completed' ? now : undefined,
         });
-        const current = get();
         if (current.activeRecordId === id) {
           set({ activeRecordId: null, session: initialSession });
         }
       },
 
       startSession: (templateId, startIndex = 0) => {
-        const tpl = get().templates.find((t) => t.id === templateId);
-        if (!tpl) return;
-        const drill = tpl.drills[startIndex];
+        const current = get();
+        const tpl = current.templates.find((t) => t.id === templateId);
+        const plan = current.plans.find((p) => p.id === templateId);
+        const drills = tpl?.drills ?? plan?.drills ?? [];
+        const drill = drills[startIndex];
         if (!drill) return;
         set({
           activeTemplateId: templateId,
@@ -504,10 +526,13 @@ export const useTrainingStore = create<TrainingStore>()(
       nextDrill: () => {
         const { session, activeRecordId, records } = get();
         if (!session.templateId) return;
-        const tpl = get().templates.find((t) => t.id === session.templateId);
-        if (!tpl) return;
-        const nextIdx = Math.min(session.drillIndex + 1, tpl.drills.length - 1);
-        const drill = tpl.drills[nextIdx];
+        const current = get();
+        const tpl = current.templates.find((t) => t.id === session.templateId);
+        const plan = current.plans.find((p) => p.id === session.templateId);
+        const drills = tpl?.drills ?? plan?.drills ?? [];
+        if (drills.length === 0) return;
+        const nextIdx = Math.min(session.drillIndex + 1, drills.length - 1);
+        const drill = drills[nextIdx];
         
         const isFinished = nextIdx === session.drillIndex;
         if (activeRecordId && !isFinished) {
@@ -534,31 +559,42 @@ export const useTrainingStore = create<TrainingStore>()(
         }));
       },
 
-      prevDrill: () =>
-        set((s) => {
-          if (!s.session.templateId) return {};
-          const tpl = s.templates.find((t) => t.id === s.session.templateId);
-          if (!tpl) return {};
-          const idx = Math.max(s.session.drillIndex - 1, 0);
-          const drill = tpl.drills[idx];
-          return {
-            session: {
-              ...s.session,
-              drillIndex: idx,
-              remaining: drill.duration,
-              drillStartedAt: Date.now(),
-              lastTickTs: Date.now(),
-              status: 'running',
-            },
-          };
-        }),
+      prevDrill: () => {
+        const state = get();
+        if (!state.session.templateId) return;
+        const tpl = state.templates.find((t) => t.id === state.session.templateId);
+        const plan = state.plans.find((p) => p.id === state.session.templateId);
+        const drills = tpl?.drills ?? plan?.drills ?? [];
+        if (drills.length === 0) return;
+        const idx = Math.max(state.session.drillIndex - 1, 0);
+        const drill = drills[idx];
+        
+        if (state.activeRecordId) {
+          get().updateRecord(state.activeRecordId, {
+            completedDrills: Math.max(0, idx),
+          });
+        }
+        
+        set({
+          session: {
+            ...state.session,
+            drillIndex: idx,
+            remaining: drill.duration,
+            drillStartedAt: Date.now(),
+            lastTickTs: Date.now(),
+            status: 'running',
+          },
+        });
+      },
 
       skipToDrill: (index) =>
         set((s) => {
           if (!s.session.templateId) return {};
           const tpl = s.templates.find((t) => t.id === s.session.templateId);
-          if (!tpl) return {};
-          const drill = tpl.drills[index];
+          const plan = s.plans.find((p) => p.id === s.session.templateId);
+          const drills = tpl?.drills ?? plan?.drills ?? [];
+          if (drills.length === 0) return {};
+          const drill = drills[index];
           if (!drill) return {};
           return {
             session: {
@@ -593,11 +629,13 @@ export const useTrainingStore = create<TrainingStore>()(
       },
 
       resetCurrentDrill: () => {
-        const { session, templates } = get();
+        const { session, templates, plans } = get();
         if (!session.templateId) return;
         const tpl = templates.find((t) => t.id === session.templateId);
-        if (!tpl) return;
-        const drill = tpl.drills[session.drillIndex];
+        const plan = plans.find((p) => p.id === session.templateId);
+        const drills = tpl?.drills ?? plan?.drills ?? [];
+        if (drills.length === 0) return;
+        const drill = drills[session.drillIndex];
         if (!drill) return;
         set({
           session: {
@@ -626,60 +664,77 @@ export const useTrainingStore = create<TrainingStore>()(
           return { session: next };
         }),
 
-      syncFromServer: async () => {
+      syncFromServer: async (sharePlanId?: string) => {
         const token = useAuthStore.getState().token;
         if (!token) return;
-        const [tplRes, planRes, recordRes] = await Promise.all([
-          api.get<any>('/templates'),
-          api.get<any>('/plans'),
-          api.get<any>('/records'),
-        ]);
-        if (tplRes.data) {
-          const list = (tplRes.data as any).templates ?? [];
-          set((s) => ({ ...s, templates: list.map(mapTemplateFromServer) }));
+        
+        const currentState = get();
+        const effectiveSharePlanId = sharePlanId ?? currentState.sharePlanId;
+        
+        if (syncPromise) {
+          return syncPromise;
         }
-        if (planRes.data) {
-          const list = (planRes.data as any).plans ?? [];
-          set((s) => ({ ...s, plans: list.map(mapPlanFromServer) }));
-        }
-        if (recordRes.data) {
-          const list = (recordRes.data as any).records ?? [];
-          set((s) => ({ ...s, records: list.map(mapRecordFromServer) }));
-        }
-        set({ synced: true });
-
-        const current = get();
-        const currentUserId = useAuthStore.getState().user?.id;
-        if (current.session.status === 'idle') {
-          const inProgressRecord = current.records.find(
-            (r) => r.status === 'in_progress' && r.userId === currentUserId
-          );
-          if (inProgressRecord && inProgressRecord.templateId) {
-            const tpl = current.templates.find(
-              (t) => t.id === inProgressRecord.templateId
-            );
-            if (tpl) {
-              const completedCount = Math.max(0, inProgressRecord.completedDrills ?? 0);
-              const drillIndex = Math.min(completedCount, Math.max(0, tpl.drills.length - 1));
-              const drill = tpl.drills[drillIndex];
-              const remaining = drill ? drill.duration : 0;
-              const isLastFinished = completedCount >= tpl.drills.length;
-              set({
-                session: {
-                  ...initialSession,
-                  templateId: tpl.id,
-                  drillIndex,
-                  remaining,
-                  status: isLastFinished ? 'finished' : 'ready',
-                  startedAt: inProgressRecord.startTime ?? null,
-                  lastTickTs: null,
-                  drillStartedAt: null,
-                },
-                activeRecordId: inProgressRecord.id,
-              });
+        
+        syncPromise = (async () => {
+          try {
+            const planUrl = effectiveSharePlanId ? `/plans?sharePlanId=${effectiveSharePlanId}` : '/plans';
+            const [planRes, recordRes, templateRes] = await Promise.all([
+              api.get<any>(planUrl),
+              api.get<any>('/records'),
+              api.get<any>('/templates'),
+            ]);
+            if (planRes.data) {
+              const list = (planRes.data as any).plans ?? [];
+              set((s) => ({ ...s, plans: list.map(mapPlanFromServer) }));
             }
+            if (recordRes.data) {
+              const list = (recordRes.data as any).records ?? [];
+              set((s) => ({ ...s, records: list.map(mapRecordFromServer) }));
+            }
+            if (templateRes.data) {
+              const list = (templateRes.data as any).templates ?? [];
+              set((s) => ({ ...s, templates: list.map(mapTemplateFromServer) }));
+            }
+            set({ synced: true });
+            
+            const current = get();
+            const currentUserId = useAuthStore.getState().user?.id;
+            if (current.session.status === 'idle') {
+              const inProgressRecord = current.records.find(
+                (r) => r.status === 'in_progress' && r.userId === currentUserId
+              );
+              if (inProgressRecord) {
+                const plan = current.plans.find((p) => p.id === inProgressRecord.planId);
+                const drills = plan?.drills ?? [];
+                
+                if (drills.length > 0) {
+                  const completedCount = Math.max(0, inProgressRecord.completedDrills ?? 0);
+                  const drillIndex = Math.min(completedCount, Math.max(0, drills.length - 1));
+                  const drill = drills[drillIndex];
+                  const remaining = drill ? drill.duration : 0;
+                  const isLastFinished = completedCount >= drills.length;
+                  set({
+                    session: {
+                      ...initialSession,
+                      templateId: inProgressRecord.planId,
+                      drillIndex,
+                      remaining,
+                      status: isLastFinished ? 'finished' : 'ready',
+                      startedAt: inProgressRecord.startTime ?? null,
+                      lastTickTs: null,
+                      drillStartedAt: null,
+                    },
+                    activeRecordId: inProgressRecord.id,
+                  });
+                }
+              }
+            }
+          } finally {
+            syncPromise = null;
           }
-        }
+        })();
+        
+        return syncPromise;
       },
 
       fetchSharePlan: async (planId: string) => {
@@ -687,8 +742,7 @@ export const useTrainingStore = create<TrainingStore>()(
           const res = await api.get<any>(`/records/share/${planId}`);
           if (res.data) {
             const plan = mapPlanFromServer(res.data.plan);
-            const template = mapTemplateFromServer(res.data.template);
-            return { plan, template };
+            return { plan };
           }
         } catch {
           return null;
@@ -705,6 +759,7 @@ export const useTrainingStore = create<TrainingStore>()(
         activeTemplateId: state.activeTemplateId,
         activePlanId: state.activePlanId,
         activeRecordId: state.activeRecordId,
+        sharePlanId: state.sharePlanId,
         session: state.session.status !== 'idle' ? state.session : initialSession,
       }),
     }

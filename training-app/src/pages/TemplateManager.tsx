@@ -82,14 +82,23 @@ export function TemplateManager() {
   return (
     <div className="mx-auto w-full max-w-2xl pb-28">
       <div className="px-4 pt-6">
-        <h1 className="text-2xl font-bold text-theme-text">训练模板</h1>
-        <p className="mt-1 text-sm text-theme-text-muted">
-          所有模板保存在本地浏览器中，可随时编辑和导入
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-theme-text">训练模板</h1>
+            <p className="mt-1 text-sm text-theme-text-muted">设计训练课程，定制专属模板</p>
+          </div>
+          <button
+            onClick={createNew}
+            className="flex items-center gap-1.5 rounded-2xl bg-theme-accent text-white px-3.5 py-2 text-sm font-semibold shadow-lg hover:bg-theme-accent-hover"
+          >
+            <Plus className="h-4 w-4" />
+            新建模板
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 space-y-3 px-4">
-        {templates.map((t) => {
+        {[...templates].sort((a, b) => b.createdAt - a.createdAt).map((t) => {
           const total = t.drills.reduce((a, d) => a + d.duration, 0);
           return (
             <div
@@ -191,14 +200,6 @@ export function TemplateManager() {
             </div>
           );
         })}
-
-        <button
-          onClick={createNew}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-theme-border bg-theme-bg-secondary-subtle px-4 py-4 text-sm text-theme-text-muted transition-colors hover:border-theme-accent/50 hover:bg-theme-accent/5 hover:text-theme-accent"
-        >
-          <Plus className="h-4 w-4" />
-          新建模板
-        </button>
       </div>
 
       <ConfirmDialog
@@ -240,6 +241,7 @@ function DrillEditor({
   onDeleteDrill: (drillId: string, title: string) => void;
   onDeleteCue: (drillId: string, cueId: string) => void;
 }) {
+  const [invalidDrills, setInvalidDrills] = useState<Set<string>>(new Set());
   const addDrill = () => {
     const d: Drill = {
       id: uid('drill'),
@@ -269,6 +271,20 @@ function DrillEditor({
     onChange(next);
   };
 
+  const handleClose = () => {
+    const invalid = new Set<string>();
+    template.drills.forEach((d) => {
+      if (!d.duration || d.duration <= 0) {
+        invalid.add(d.id);
+      }
+    });
+    if (invalid.size > 0) {
+      setInvalidDrills(invalid);
+      return;
+    }
+    onClose();
+  };
+
   return (
     <div className="mt-3 space-y-2 rounded-xl border border-theme-border bg-theme-bg-card-subtle p-3">
       <div className="flex items-center justify-between">
@@ -276,7 +292,7 @@ function DrillEditor({
           编辑环节
         </div>
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="flex items-center gap-1 rounded-lg bg-theme-accent/20 px-2 py-1 text-xs text-theme-accent hover:bg-theme-accent/30"
         >
           <Check className="h-3 w-3" />
@@ -315,13 +331,25 @@ function DrillEditor({
             />
             <input
               type="number"
-              value={d.duration}
-              onChange={(e) =>
-                updateDrill(d.id, { duration: Math.max(1, parseInt(e.target.value) || 0) })
-              }
-              className="w-16 rounded-md bg-theme-bg-card px-2 py-1 text-sm text-theme-text outline-none"
-              min={1}
+              value={d.duration || ''}
+              onChange={(e) => {
+                const val = parseInt(e.target.value) || 0;
+                updateDrill(d.id, { duration: val });
+                if (invalidDrills.has(d.id)) {
+                  const next = new Set(invalidDrills);
+                  next.delete(d.id);
+                  setInvalidDrills(next);
+                }
+              }}
+              className={cn(
+                "w-16 rounded-md px-2 py-1 text-sm outline-none",
+                invalidDrills.has(d.id)
+                  ? "bg-red-50 border border-red-500 text-red-600"
+                  : "bg-theme-bg-card text-theme-text"
+              )}
+              min={0}
               step={1}
+              placeholder="0"
             />
             <span className="text-xs text-theme-text-muted">秒</span>
             <button
