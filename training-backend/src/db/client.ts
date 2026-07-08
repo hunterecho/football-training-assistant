@@ -38,6 +38,7 @@ export type PlanRow = {
 export type TableName = 'users' | 'templates' | 'plans' | 'training_records' | 'system_settings';
 
 let client: SupabaseClient | null = null;
+let adminClient: SupabaseClient | null = null;
 
 export function getSupabase() {
   if (!isSupabaseConfigured()) return null;
@@ -53,6 +54,22 @@ export function getSupabase() {
     });
   }
   return client;
+}
+
+export function getAdminSupabase() {
+  if (!isSupabaseConfigured() || !config.supabaseServiceKey) return null;
+  if (!adminClient) {
+    adminClient = createClient(config.supabaseUrl, config.supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+      realtime: {
+        transport: ws as unknown as any,
+      },
+    });
+  }
+  return adminClient;
 }
 
 function uid(prefix = 'id'): string {

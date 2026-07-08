@@ -1,8 +1,6 @@
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
-import ws from 'ws';
 import { authRequired } from '../middleware/auth';
-import { dbSelect, dbInsert, dbUpdate, dbDelete, dbCount, getSupabase } from '../db/client';
+import { dbSelect, dbInsert, dbUpdate, dbDelete, dbCount, getSupabase, getAdminSupabase } from '../db/client';
 import { config } from '../config';
 
 const router = express.Router();
@@ -21,12 +19,9 @@ router.get('/', async (req, res) => {
     let total = await dbCount('plans', 'user_id', req.auth!.userId);
 
     const sb = getSupabase();
-    if (sb && config.supabaseServiceKey) {
-      const adminClient = createClient(config.supabaseUrl, config.supabaseServiceKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
-        realtime: { transport: ws as unknown as any },
-      });
-
+    const adminClient = getAdminSupabase();
+    
+    if (sb && adminClient) {
       plans = await Promise.all(plans.map(async (plan: any) => {
         if (plan.template_id) {
           const templateRes = await adminClient
@@ -41,188 +36,106 @@ router.get('/', async (req, res) => {
         return plan;
       }));
 
-      if (sharePlanId) {
-        const planRes = await adminClient
-          .from('plans')
-          .select('id, user_id, title, date, status, note, drills, template_id, created_at')
-          .eq('id', sharePlanId)
-          .single();
-        if (!planRes.error && planRes.data) {
-          const sharerRes = await adminClient
-            .from('users')
-            .select('nickname')
-            .eq('id', planRes.data.user_id)
-            .single();
-          const sharerName = sharerRes.data?.nickname || '未知用户';
-          
-          let drills: any[] = planRes.data.drills || [];
-          if (planRes.data.template_id) {
-            const tplRes = await adminClient
-              .from('templates')
-              .select('drills')
-              .eq('id', planRes.data.template_id)
+      const ownPlanIds = new Set(plans.map((p: any) => p.id));
+      
+      const [recordRes, sharePlanData, inProgressRes] = await Promise.all([
+        sb.from('training_records').select('plan_id, source_plan_id').eq('user_id', req.auth!.userId),
+        
+        sharePlanId ? (async () => {
+          try {
+            const res = await adminClient
+              .from('plans')
+              .select('id, user_id, title, date, status, note, drills, template_id, created_at')
+              .eq('id', sharePlanId)
               .single();
-            if (!tplRes.error && tplRes.data && tplRes.data.drills) {
-              drills = tplRes.data.drills;
-            }
+            if (res.error || !res.data) return null;
+            const [sharerRes, tplRes] = await Promise.all([
+              adminClient.from('users').select('nickname').eq('id', res.data.user_id).single(),
+              res.data.template_id 
+                ? adminClient.from('templates').select('drills').eq('id', res.data.template_id).single()
+                : Promise.resolve({ data: null }),
+            ]);
+            return {
+              ...res.data,
+              sharer_name: sharerRes.data?.nickname || '未知用户',
+              drills: (tplRes.data?.drills as any) || res.data.drills || [],
+            };
+          } catch {
+            return null;
           }
+        })() : Promise.resolve(null),
+        
+        sb.from('training_records').select('plan_id').eq('user_id', req.auth!.userId).in('status', ['in_progress', 'paused']),
+      ]);
+
+      const sharedPlanIds = new Set<string>();
+      if (!recordRes.error && recordRes.data) {
+        recordRes.data.forEach((r: any) => {
+          if (r.plan_id && !ownPlanIds.has(r.plan_id)) {
+            sharedPlanIds.add(r.plan_id);
+          }
+        });
+      }
+
+      const sharedPlans: any[] = await Promise.all(
+        Array.from(sharedPlanIds).map(async (planId) => {
+          const planRes = await adminClient
+            .from('plans')
+            .select('id, user_id, title, date, status, note, drills, template_id, created_at')
+            .eq('id', planId)
+            .single();
+          if (planRes.error || !planRes.data) return null;
           
+          const [sharerRes, tplRes] = await Promise.all([
+            adminClient.from('users').select('nickname').eq('id', planRes.data.user_id).single(),
+            planRes.data.template_id 
+              ? adminClient.from('templates').select('drills').eq('id', planRes.data.template_id).single()
+              : Promise.resolve({ data: null }),
+          ]);
+          
+          return {
+            ...planRes.data,
+            drills: (tplRes.data?.drills as any) || planRes.data.drills || [],
+            source_plan_id: planId,
+            sharer_name: sharerRes.data?.nickname || '未知用户',
+          };
+        })
+      ).then(results => results.filter(Boolean));
+
+      if (sharePlanData) {
+        const exists = plans.some((p: any) => p.id === sharePlanId);
+        if (exists) {
           plans = plans.map((p: any) => {
             if (p.id === sharePlanId) {
-              return { ...p, drills, source_plan_id: sharePlanId, sharer_name: sharerName };
+              return { ...p, drills: sharePlanData.drills, source_plan_id: sharePlanId, sharer_name: sharePlanData.sharer_name };
             }
             return p;
           });
+        } else {
+          plans = [{
+            ...sharePlanData,
+            source_plan_id: sharePlanId,
+            sharer_name: sharePlanData.sharer_name,
+          }, ...plans];
         }
-        
-        const ownPlanIds = new Set(plans.map((p: any) => p.id));
-        
-        const recordRes = await sb
-          .from('training_records')
-          .select('plan_id, source_plan_id')
-          .eq('user_id', req.auth!.userId);
-        
-        const sharedPlanIds = new Set<string>();
-        if (!recordRes.error && recordRes.data) {
-          recordRes.data.forEach((r: any) => {
-            if (r.plan_id && !ownPlanIds.has(r.plan_id)) {
-              sharedPlanIds.add(r.plan_id);
-            }
-          });
-        }
-        
-        const sharedPlans: any[] = [];
-        for (const planId of sharedPlanIds) {
-          const planRes = await adminClient
-            .from('plans')
-            .select('id, user_id, title, date, status, note, drills, template_id, created_at')
-            .eq('id', planId)
-            .single();
-          if (!planRes.error && planRes.data) {
-            const sharerRes = await adminClient
-              .from('users')
-              .select('nickname')
-              .eq('id', planRes.data.user_id)
-              .single();
-            const sharerName = sharerRes.data?.nickname || '未知用户';
-            
-            let drills: any[] = planRes.data.drills || [];
-            if (planRes.data.template_id) {
-              const tplRes = await adminClient
-                .from('templates')
-                .select('drills')
-                .eq('id', planRes.data.template_id)
-                .single();
-              if (!tplRes.error && tplRes.data && tplRes.data.drills) {
-                drills = tplRes.data.drills;
-              }
-            }
-            
-            sharedPlans.push({
-              ...planRes.data,
-              drills,
-              source_plan_id: planId,
-              sharer_name: sharerName,
-            });
-          }
-        }
-        
-        plans = [...plans, ...sharedPlans];
-        
-        const inProgressRes = await sb
-          .from('training_records')
-          .select('plan_id')
-          .eq('user_id', req.auth!.userId)
-          .in('status', ['in_progress', 'paused']);
-        const inProgressPlanIds = new Set<string>();
-        if (!inProgressRes.error && inProgressRes.data) {
-          inProgressRes.data.forEach((r: any) => {
-            if (r.plan_id) inProgressPlanIds.add(r.plan_id);
-          });
-        }
-        
-        plans.sort((a: any, b: any) => {
-          const aInProgress = inProgressPlanIds.has(a.id);
-          const bInProgress = inProgressPlanIds.has(b.id);
-          if (aInProgress && !bInProgress) return -1;
-          if (!aInProgress && bInProgress) return 1;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        });
-      } else {
-        const ownPlanIds = new Set(plans.map((p: any) => p.id));
-        
-        const recordRes = await sb
-          .from('training_records')
-          .select('plan_id, source_plan_id')
-          .eq('user_id', req.auth!.userId);
-        
-        const sharedPlanIds = new Set<string>();
-        if (!recordRes.error && recordRes.data) {
-          recordRes.data.forEach((r: any) => {
-            if (r.plan_id && !ownPlanIds.has(r.plan_id)) {
-              sharedPlanIds.add(r.plan_id);
-            }
-          });
-        }
-        
-        const sharedPlans: any[] = [];
-        for (const planId of sharedPlanIds) {
-          const planRes = await adminClient
-            .from('plans')
-            .select('id, user_id, title, date, status, note, drills, template_id, created_at')
-            .eq('id', planId)
-            .single();
-          if (!planRes.error && planRes.data) {
-            const sharerRes = await adminClient
-              .from('users')
-              .select('nickname')
-              .eq('id', planRes.data.user_id)
-              .single();
-            const sharerName = sharerRes.data?.nickname || '未知用户';
-            
-            let drills: any[] = planRes.data.drills || [];
-            if (planRes.data.template_id) {
-              const tplRes = await adminClient
-                .from('templates')
-                .select('drills')
-                .eq('id', planRes.data.template_id)
-                .single();
-              if (!tplRes.error && tplRes.data && tplRes.data.drills) {
-                drills = tplRes.data.drills;
-              }
-            }
-            
-            sharedPlans.push({
-              ...planRes.data,
-              drills,
-              source_plan_id: planId,
-              sharer_name: sharerName,
-            });
-          }
-        }
-        
+      } else if (sharedPlans.length > 0) {
         plans = [...sharedPlans, ...plans];
-        
-        const inProgressRes = await sb
-          .from('training_records')
-          .select('plan_id')
-          .eq('user_id', req.auth!.userId)
-          .in('status', ['in_progress', 'paused']);
-        const inProgressPlanIds = new Set<string>();
-        if (!inProgressRes.error && inProgressRes.data) {
-          inProgressRes.data.forEach((r: any) => {
-            if (r.plan_id) inProgressPlanIds.add(r.plan_id);
-          });
-        }
-        
-        plans.sort((a: any, b: any) => {
-          const aInProgress = inProgressPlanIds.has(a.id);
-          const bInProgress = inProgressPlanIds.has(b.id);
-          if (aInProgress && !bInProgress) return -1;
-          if (!aInProgress && bInProgress) return 1;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+
+      const inProgressPlanIds = new Set<string>();
+      if (!inProgressRes.error && inProgressRes.data) {
+        inProgressRes.data.forEach((r: any) => {
+          if (r.plan_id) inProgressPlanIds.add(r.plan_id);
         });
       }
+
+      plans.sort((a: any, b: any) => {
+        const aInProgress = inProgressPlanIds.has(a.id);
+        const bInProgress = inProgressPlanIds.has(b.id);
+        if (aInProgress && !bInProgress) return -1;
+        if (!aInProgress && bInProgress) return 1;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
     } else {
       plans = await Promise.all(plans.map(async (plan: any) => {
         if (plan.template_id) {
@@ -358,13 +271,9 @@ router.delete('/:id', async (req, res) => {
 router.get('/check-share/:planId', async (req, res) => {
   try {
     const { planId } = req.params;
-    const sb = getSupabase();
+    const adminClient = getAdminSupabase();
     
-    if (sb && config.supabaseServiceKey) {
-      const adminClient = createClient(config.supabaseUrl, config.supabaseServiceKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
-        realtime: { transport: ws as unknown as any },
-      });
+    if (adminClient) {
       const { data, error } = await adminClient
         .from('plans')
         .select('id, status, user_id')
@@ -413,13 +322,8 @@ router.post('/accept-share', async (req, res) => {
     let originalTemplate: any = null;
     let sharerName = '';
 
-    const sb = getSupabase();
-    if (sb && config.supabaseServiceKey) {
-      const adminClient = createClient(config.supabaseUrl, config.supabaseServiceKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
-        realtime: { transport: ws as unknown as any },
-      });
-
+    const adminClient = getAdminSupabase();
+    if (adminClient) {
       const { data: sharedPlans, error: planError } = await adminClient
         .from('plans')
         .select('*')
@@ -435,24 +339,23 @@ router.post('/accept-share', async (req, res) => {
         return;
       }
 
-      const { data: templates, error: templateError } = await adminClient
-        .from('templates')
-        .select('*')
-        .eq('id', sharedPlan!.template_id)
-        .limit(1);
-      if (templateError || !templates || templates.length === 0) {
-        res.status(404).json({ error: 'Template not found' });
-        return;
-      }
-      originalTemplate = templates[0];
+      const [tplRes, sharerRes] = await Promise.all([
+        sharedPlan!.template_id 
+          ? adminClient.from('templates').select('*').eq('id', sharedPlan!.template_id).limit(1)
+          : Promise.resolve({ data: [], error: null }),
+        adminClient.from('users').select('id, nickname, avatar').eq('id', sharedPlan!.user_id).limit(1),
+      ]);
 
-      const { data: users, error: userError } = await adminClient
-        .from('users')
-        .select('id, nickname, avatar')
-        .eq('id', sharedPlan!.user_id)
-        .limit(1);
-      if (!userError && users && users.length > 0) {
-        sharerName = users[0].nickname || '';
+      if (sharedPlan!.template_id) {
+        if (tplRes.error || !tplRes.data || tplRes.data.length === 0) {
+          res.status(404).json({ error: 'Template not found' });
+          return;
+        }
+        originalTemplate = tplRes.data[0];
+      }
+
+      if (!sharerRes.error && sharerRes.data && sharerRes.data.length > 0) {
+        sharerName = sharerRes.data[0].nickname || '';
       }
     } else {
       const sharedPlans = await dbSelect('plans', 'id', planId);
