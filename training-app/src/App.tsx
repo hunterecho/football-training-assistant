@@ -50,7 +50,6 @@ function ShareRedirect() {
 function AppContent() {
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
-  const settings = useSettingsStore((s) => s.settings);
   const syncFromServer = useTrainingStore((s) => s.syncFromServer);
 
   useEffect(() => {

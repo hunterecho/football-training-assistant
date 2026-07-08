@@ -29,7 +29,7 @@ async function request<T>(
       return { error: '登录已过期，请重新登录' };
     }
     if (!res.ok) {
-      return { error: (body as any)?.error || `请求失败 (${res.status})` };
+      return { error: (body as Record<string, unknown>)?.error as string || `请求失败 (${res.status})` };
     }
     return { data: body as T };
   } catch (err) {

@@ -4,16 +4,11 @@ import { useTrainingStore, toDateKey } from '@/store/trainingStore';
 import { DrillCard } from '@/components/Plan/DrillCard';
 import { totalDuration } from '@/utils/duration';
 import {
-  PlayCircle,
-  BookOpen,
   Dumbbell,
-  ChevronRight,
   CalendarCheck,
   Plus,
-  ChevronLeft,
   ChevronRight as ChevronRightIcon,
   Gift,
-  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
@@ -34,11 +29,10 @@ export function TodayPlan() {
   const toggleRecordStatus = useTrainingStore((s) => s.toggleRecordStatus);
   const setSessionPanelOpen = useTrainingStore((s) => s.setSessionPanelOpen);
   const nextDrill = useTrainingStore((s) => s.nextDrill);
-  const setPlans = useTrainingStore((s) => s.setPlans);
   const setSharePlanId = useTrainingStore((s) => s.setSharePlanId);
   const user = useAuthStore((s) => s.user);
 
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const [showShareToast, setShowShareToast] = useState(false);
   const [sharePlanInfo, setSharePlanInfo] = useState<{ planId: string; title: string; sharerName: string } | null>(null);
 
@@ -144,9 +138,6 @@ export function TodayPlan() {
   const todayKey = toDateKey(today);
 
   const todayPlan = plans.find((p) => p.date === todayKey && (p.status === 'planned' || p.status === 'terminated'));
-  const todayRecord = records.find((r) =>
-    r.planId === todayPlan?.id && (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id
-  );
 
   const recentPlans = useMemo(() => {
     const sortedPlans = [...plans]

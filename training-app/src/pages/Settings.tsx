@@ -1,5 +1,5 @@
 import { useSettingsStore } from '@/store/settingsStore';
-import { useThemeStore, themes, type ThemeName, type ThemeConfig } from '@/store/themeStore';
+import { useThemeStore, themes, type ThemeConfig } from '@/store/themeStore';
 import { cn } from '@/lib/utils';
 import {
   Volume2,

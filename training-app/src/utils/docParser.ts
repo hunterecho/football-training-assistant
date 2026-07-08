@@ -57,7 +57,7 @@ function stripHeadingDecorations(t: string): string {
   // Remove bullet markers
   out = out.replace(/^[\s]*[-*+]\s*/, '');
   // Remove duration in parentheses / brackets
-  out = out.replace(/[（(（【\[]\s*\d+\s*[分秒mims分钟秒钟min]+[^)）】\]]*[)）】\]]/g, '');
+  out = out.replace(/[（(【[]\s*\d+\s*[分秒mims分钟秒钟min]+[^)）】\]]*[)）】\]]/g, '');
   return out.trim();
 }
 
@@ -72,7 +72,7 @@ function extractDurationFromLine(line: string): number | null {
   if (!t) return null;
   // Strip surrounding parens/brackets first
   const core = t
-    .replace(/[（(（【\[]\s*/g, ' ')
+    .replace(/[（(【[]\s*/g, ' ')
     .replace(/[)）】\]]\s*/g, ' ')
     .trim();
   // "1 分 30 秒" pattern
@@ -98,10 +98,6 @@ function extractDurationFromSection(lines: string[]): number | null {
   return null;
 }
 
-function isBulletPoint(line: string): boolean {
-  return /^[\s]*[-*+]\s+/.test(line) || /^[\s]*\d+[.、)：:]\s+/.test(line);
-}
-
 export function parseDocument(text: string, templateName = '我的训练计划'): ParseResult {
   const warnings: ParseWarning[] = [];
   const rawLines = text.split(/\r?\n/);
@@ -114,8 +110,7 @@ export function parseDocument(text: string, templateName = '我的训练计划')
     lines: string[];
   }[] = [];
 
-  let currentStart = -1;
-  let currentHeading = '';
+  
 
   // First, find all heading indices
   const headingIndices: number[] = [];

@@ -17,7 +17,7 @@ export function Login() {
   const loadSettings = useSettingsStore((s) => s.loadFromBackend);
   const navigate = useNavigate();
   const location = useLocation();
-  const redirectTo = (location.state as any)?.from || '/';
+  const redirectTo = (location.state as { from?: string })?.from || '/';
 
   useEffect(() => {
     const ua = window.navigator.userAgent.toLowerCase();
@@ -49,8 +49,8 @@ export function Login() {
     setError('');
     
     try {
-      if (isWechatEnv && (window as any).wx) {
-        (window as any).wx.login({
+      if (isWechatEnv && (window as Window & { wx?: { login: (opts: { success: (res: { code: string }) => void; fail: () => void }) => void } }).wx) {
+        (window as Window & { wx?: { login: (opts: { success: (res: { code: string }) => void; fail: () => void }) => void } }).wx.login({
           success: async (res: { code: string }) => {
             const result = await wechatLogin(res.code);
             if (result.ok) {
@@ -79,7 +79,7 @@ export function Login() {
         }
         setWechatLoading(false);
       }
-    } catch (err) {
+    } catch {
       setError('登录异常');
       setWechatLoading(false);
     }

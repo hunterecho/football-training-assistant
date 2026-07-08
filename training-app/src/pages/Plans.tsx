@@ -10,7 +10,6 @@ import { Plus,
   Check,
   Clock,
   ChevronDown,
-  RotateCcw,
   XCircle,
   Users,
   Share2,
@@ -22,7 +21,7 @@ import { Plus,
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { api } from '@/lib/api';
-import type { RecordStatus, PlanStatus } from '@/types';
+import type { PlanStatus } from '@/types';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -228,7 +227,7 @@ export function Plans() {
       if (!map.has(r.planId)) map.set(r.planId, []);
       map.get(r.planId)!.push(r);
     }
-    for (const [key, list] of map) {
+    for (const [, list] of map) {
       list.sort((a, b) => (b.startTime || b.createdAt) - (a.startTime || a.createdAt));
     }
     return map;
@@ -924,7 +923,7 @@ function PlanWithRecordsCard({
                 disabled={!!inProgressRecord}
                 className={cn(
                   'rounded-lg p-2 transition-colors',
-                  !!inProgressRecord
+                  inProgressRecord
                     ? 'bg-theme-bg-card-subtle text-theme-text-muted cursor-not-allowed'
                     : 'bg-theme-bg-card text-theme-danger hover:bg-theme-danger/20'
                 )}
@@ -1041,8 +1040,6 @@ function RecordCard({
   
   const pauseSession = useTrainingStore((s) => s.pauseSession);
   const resumeSession = useTrainingStore((s) => s.resumeSession);
-
-  const total = tpl ? tpl.drills.reduce((a, d) => a + d.duration, 0) : 0;
 
   return (
     <div

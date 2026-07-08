@@ -1,5 +1,6 @@
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
 import { authRequired } from '../middleware/auth';
 import { dbSelect, dbInsert, dbUpdate, dbDelete, dbCount, getSupabase } from '../db/client';
 import { config } from '../config';
@@ -21,7 +22,10 @@ router.get('/', async (req, res) => {
 
     const sb = getSupabase();
     if (sb && config.supabaseServiceKey) {
-      const adminClient = createClient(config.supabaseUrl, config.supabaseServiceKey);
+      const adminClient = createClient(config.supabaseUrl, config.supabaseServiceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+        realtime: { transport: ws as unknown as any },
+      });
 
       plans = await Promise.all(plans.map(async (plan: any) => {
         if (plan.template_id) {
@@ -357,7 +361,10 @@ router.get('/check-share/:planId', async (req, res) => {
     const sb = getSupabase();
     
     if (sb && config.supabaseServiceKey) {
-      const adminClient = createClient(config.supabaseUrl, config.supabaseServiceKey);
+      const adminClient = createClient(config.supabaseUrl, config.supabaseServiceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+        realtime: { transport: ws as unknown as any },
+      });
       const { data, error } = await adminClient
         .from('plans')
         .select('id, status, user_id')
@@ -408,7 +415,10 @@ router.post('/accept-share', async (req, res) => {
 
     const sb = getSupabase();
     if (sb && config.supabaseServiceKey) {
-      const adminClient = createClient(config.supabaseUrl, config.supabaseServiceKey);
+      const adminClient = createClient(config.supabaseUrl, config.supabaseServiceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+        realtime: { transport: ws as unknown as any },
+      });
 
       const { data: sharedPlans, error: planError } = await adminClient
         .from('plans')

@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Template, SessionState, Cue, TrainingRecord, TrainingPlan, RecordStatus, PlanStatus } from '@/types';
-import { defaultTemplate } from '@/data/defaultTemplate';
+import type { Template, SessionState, Cue, TrainingRecord, TrainingPlan, RecordStatus, PlanStatus, Drill } from '@/types';
 import { uid } from '@/utils/duration';
 import { api } from '@/lib/api';
 import { useAuthStore } from './authStore';
@@ -89,26 +88,26 @@ export const toDateKey = (d: Date): string => {
   return `${y}-${m}-${day}`;
 };
 
-const mapTemplateFromServer = (t: any): Template => ({
+const mapTemplateFromServer = (t: { id: string; name: string; description?: string; drills?: { id?: string; title?: string; duration?: number; summary?: string; cues?: { id?: string; text?: string; trigger?: string; seconds?: number }[] }[]; created_at?: string }): Template => ({
   id: t.id,
   name: t.name,
   description: t.description,
-  drills: (t.drills ?? []).map((d: any) => ({
+  drills: (t.drills ?? []).map((d) => ({
     id: d.id ?? uid('drill'),
     title: d.title ?? '',
     duration: d.duration ?? 0,
     summary: d.summary ?? '',
-    cues: (d.cues ?? []).map((c: any) => ({
+    cues: (d.cues ?? []).map((c) => ({
       id: c.id ?? uid('cue'),
       text: c.text ?? '',
-      trigger: c.trigger ?? 'start',
+      trigger: (c.trigger ?? 'start') as Cue['trigger'],
       seconds: c.seconds,
     })),
   })),
   createdAt: t.created_at ? new Date(t.created_at).getTime() : Date.now(),
 });
 
-const mapPlanFromServer = (p: any): TrainingPlan => ({
+const mapPlanFromServer = (p: { id: string; user_id?: string; template_id?: string; title: string; date?: string; status?: string; note?: string; drills?: Drill[]; source_plan_id?: string; sharer_name?: string; created_at?: string; completed_at?: string }): TrainingPlan => ({
   id: p.id,
   userId: p.user_id,
   templateId: p.template_id,
@@ -123,7 +122,7 @@ const mapPlanFromServer = (p: any): TrainingPlan => ({
   completedAt: p.completed_at ? new Date(p.completed_at).getTime() : undefined,
 });
 
-const mapRecordFromServer = (r: any): TrainingRecord => ({
+const mapRecordFromServer = (r: { id: string; plan_id: string; template_id?: string; user_id: string; title: string; status?: string; start_time?: string; end_time?: string; duration_seconds?: number; completed_drills?: number; total_drills?: number; note?: string; created_at?: string; completed_at?: string; executor?: { id: string; nickname: string; avatar: string | null }; source_plan_id?: string; sharer_name?: string; sharer_id?: string }): TrainingRecord => ({
   id: r.id,
   planId: r.plan_id,
   templateId: r.template_id,
@@ -178,7 +177,7 @@ export const useTrainingStore = create<TrainingStore>()(
         set((s) => ({ templates: [...s.templates, t] }));
         const token = useAuthStore.getState().token;
         if (token) {
-          const res = await api.post<any>('/templates', {
+          const res = await api.post<{ template: { id: string; name: string; description?: string; drills?: { id?: string; title?: string; duration?: number; summary?: string; cues?: { id?: string; text?: string; trigger?: string; seconds?: number }[] }[]; created_at?: string } }>('/templates', {
             name: t.name,
             description: t.description,
             drills: t.drills,
@@ -187,8 +186,8 @@ export const useTrainingStore = create<TrainingStore>()(
             set((s) => ({ templates: s.templates.filter((x) => x.id !== tempId) }));
             return;
           }
-          if (res.data) {
-            const serverT = mapTemplateFromServer((res.data as any).template || res.data);
+          if (res.data?.template) {
+            const serverT = mapTemplateFromServer(res.data.template);
             set((s) => ({
               templates: s.templates.map((x) => (x.id === tempId ? serverT : x)),
               activeTemplateId: s.activeTemplateId === tempId ? serverT.id : s.activeTemplateId,
@@ -273,7 +272,7 @@ export const useTrainingStore = create<TrainingStore>()(
         set((s) => ({ plans: [newPlan, ...s.plans], activePlanId: tempId }));
         const token = useAuthStore.getState().token;
         if (token) {
-          const res = await api.post<any>('/plans', {
+          const res = await api.post<{ plan: { id: string; user_id?: string; template_id?: string; title: string; date?: string; status?: string; note?: string; drills?: Drill[]; source_plan_id?: string; sharer_name?: string; created_at?: string; completed_at?: string } }>('/plans', {
             template_id: plan.templateId,
             title: plan.title,
             date: plan.date,
@@ -287,8 +286,8 @@ export const useTrainingStore = create<TrainingStore>()(
             }));
             return tempId;
           }
-          if (res.data) {
-            const serverPlan = mapPlanFromServer((res.data as any).plan || res.data);
+          if (res.data?.plan) {
+            const serverPlan = mapPlanFromServer(res.data.plan);
             set((s) => ({
               plans: s.plans.map((p) => (p.id === tempId ? serverPlan : p)),
               activePlanId: s.activePlanId === tempId ? serverPlan.id : s.activePlanId,
@@ -330,14 +329,14 @@ export const useTrainingStore = create<TrainingStore>()(
       fetchPlansPage: async (page, pageSize = 20) => {
         const token = useAuthStore.getState().token;
         if (!token) return;
-        const res = await api.get<any>(`/plans?page=${page}&pageSize=${pageSize}`);
+        const res = await api.get<{ plans: unknown[]; page?: number; pageSize?: number; total?: number }>(`/plans?page=${page}&pageSize=${pageSize}`);
         if (res.data) {
-          const list = (res.data as any).plans ?? [];
+          const list = res.data.plans ?? [];
           set({
             plans: list.map(mapPlanFromServer),
-            plansPage: (res.data as any).page ?? page,
-            plansPageSize: (res.data as any).pageSize ?? pageSize,
-            plansTotal: (res.data as any).total ?? 0,
+            plansPage: res.data.page ?? page,
+            plansPageSize: res.data.pageSize ?? pageSize,
+            plansTotal: res.data.total ?? 0,
           });
         }
       },
@@ -376,7 +375,7 @@ export const useTrainingStore = create<TrainingStore>()(
         set((s) => ({ records: [newRecord, ...s.records], activeRecordId: tempId }));
         const token = useAuthStore.getState().token;
         if (token) {
-          const res = await api.post<any>('/records', {
+          const res = await api.post<{ record: { id: string; plan_id: string; template_id?: string; user_id: string; title: string; status?: string; start_time?: string; end_time?: string; duration_seconds?: number; completed_drills?: number; total_drills?: number; note?: string; created_at?: string; completed_at?: string; executor?: { id: string; nickname: string; avatar: string | null }; source_plan_id?: string; sharer_name?: string; sharer_id?: string } }>('/records', {
             plan_id: record.planId,
             template_id: record.templateId,
             title: record.title,
@@ -398,8 +397,8 @@ export const useTrainingStore = create<TrainingStore>()(
             }));
             return tempId;
           }
-          if (res.data) {
-            const serverRecord = mapRecordFromServer((res.data as any).record || res.data);
+          if (res.data?.record) {
+            const serverRecord = mapRecordFromServer(res.data.record);
             set((s) => ({
               records: s.records.map((r) => (r.id === tempId ? serverRecord : r)),
               activeRecordId: s.activeRecordId === tempId ? serverRecord.id : s.activeRecordId,
@@ -679,20 +678,20 @@ export const useTrainingStore = create<TrainingStore>()(
           try {
             const planUrl = effectiveSharePlanId ? `/plans?sharePlanId=${effectiveSharePlanId}` : '/plans';
             const [planRes, recordRes, templateRes] = await Promise.all([
-              api.get<any>(planUrl),
-              api.get<any>('/records'),
-              api.get<any>('/templates'),
+              api.get<{ plans: unknown[] }>(planUrl),
+              api.get<{ records: unknown[] }>('/records'),
+              api.get<{ templates: unknown[] }>('/templates'),
             ]);
             if (planRes.data) {
-              const list = (planRes.data as any).plans ?? [];
+              const list = planRes.data.plans ?? [];
               set((s) => ({ ...s, plans: list.map(mapPlanFromServer) }));
             }
             if (recordRes.data) {
-              const list = (recordRes.data as any).records ?? [];
+              const list = recordRes.data.records ?? [];
               set((s) => ({ ...s, records: list.map(mapRecordFromServer) }));
             }
             if (templateRes.data) {
-              const list = (templateRes.data as any).templates ?? [];
+              const list = templateRes.data.templates ?? [];
               set((s) => ({ ...s, templates: list.map(mapTemplateFromServer) }));
             }
             set({ synced: true });
@@ -739,7 +738,7 @@ export const useTrainingStore = create<TrainingStore>()(
 
       fetchSharePlan: async (planId: string) => {
         try {
-          const res = await api.get<any>(`/records/share/${planId}`);
+          const res = await api.get<{ plan: { id: string; user_id?: string; template_id?: string; title: string; date?: string; status?: string; note?: string; drills?: Drill[]; source_plan_id?: string; sharer_name?: string; created_at?: string; completed_at?: string } }>(`/records/share/${planId}`);
           if (res.data) {
             const plan = mapPlanFromServer(res.data.plan);
             return { plan };

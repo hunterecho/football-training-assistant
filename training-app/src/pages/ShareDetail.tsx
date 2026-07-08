@@ -4,7 +4,7 @@ import { formatDuration, formatTime, formatDurationChinese } from '@/utils/durat
 import { useSpeech } from '@/hooks/useSpeech';
 import { useAuthStore } from '@/store/authStore';
 import { useTrainingStore } from '@/store/trainingStore';
-import type { Template, TrainingPlan, SessionState, TrainingRecord } from '@/types';
+import type { Template, TrainingPlan, SessionState, TrainingRecord, CueTrigger, RecordStatus } from '@/types';
 import { api } from '@/lib/api';
 import { Clock, Users, RotateCcw, X, LogOut, UserCircle } from 'lucide-react';
 
@@ -18,7 +18,7 @@ const initialSession: SessionState = {
   drillStartedAt: null,
 };
 
-const mapPlanFromServer = (p: any): TrainingPlan => ({
+const mapPlanFromServer = (p: { id: string; template_id?: string; title: string; date: string; status?: string; note?: string; drills?: unknown[]; sharer_name?: string; source_plan_id?: string; user_id?: string; created_at?: string; completed_at?: string }): TrainingPlan => ({
   id: p.id,
   templateId: p.template_id,
   title: p.title,
@@ -29,26 +29,26 @@ const mapPlanFromServer = (p: any): TrainingPlan => ({
   completedAt: p.completed_at ? new Date(p.completed_at).getTime() : undefined,
 });
 
-const mapTemplateFromServer = (t: any): Template => ({
+const mapTemplateFromServer = (t: { id: string; name: string; description?: string; drills?: { id?: string; title?: string; duration?: number; summary?: string; cues?: { id?: string; text?: string; trigger?: string; seconds?: number }[] }[]; created_at?: string }): Template => ({
   id: t.id,
   name: t.name,
   description: t.description,
-  drills: (t.drills ?? []).map((d: any) => ({
+  drills: (t.drills ?? []).map((d) => ({
     id: d.id ?? '',
     title: d.title ?? '',
     duration: d.duration ?? 0,
     summary: d.summary ?? '',
-    cues: (d.cues ?? []).map((c: any) => ({
+    cues: (d.cues ?? []).map((c) => ({
       id: c.id ?? '',
       text: c.text ?? '',
-      trigger: c.trigger ?? 'start',
+      trigger: (c.trigger ?? 'start') as CueTrigger,
       seconds: c.seconds,
     })),
   })),
   createdAt: t.created_at ? new Date(t.created_at).getTime() : Date.now(),
 });
 
-const mapRecordFromServer = (r: any): TrainingRecord => ({
+const mapRecordFromServer = (r: { id: string; user_id: string; plan_id: string; template_id?: string; title: string; status: RecordStatus; start_time?: string; end_time?: string; duration_seconds?: number; completed_drills?: number; total_drills?: number; note?: string; created_at?: string; completed_at?: string; executor?: { id: string; nickname: string; avatar: string | null } }): TrainingRecord => ({
   id: r.id,
   userId: r.user_id,
   planId: r.plan_id,
@@ -99,7 +99,7 @@ export function ShareDetail() {
   const logout = useAuthStore((s) => s.logout);
   const resetSession = useTrainingStore((s) => s.resetSession);
   
-  const { speak, enqueue, stop, clear, speaking, resume } = useSpeech({ enabled: true });
+  const { enqueue, stop, clear, speaking, resume } = useSpeech({ enabled: true });
 
   const firedCueKeysRef = useRef<Set<string>>(new Set());
   const firedMinuteKeysRef = useRef<Set<string>>(new Set());
@@ -117,8 +117,8 @@ export function ShareDetail() {
     const fetchData = async () => {
       try {
         const [shareRes, recordsRes] = await Promise.all([
-          api.get<any>(`/records/share/${planId}`).catch(() => null),
-          token ? api.get<any>(`/records/by-plan/${planId}`).catch(() => null) : Promise.resolve(null),
+          api.get<{ plan: unknown; template: unknown; terminated?: boolean; sharerName?: string }>(`/records/share/${planId}`).catch(() => null),
+          token ? api.get<{ records: unknown[] }>(`/records/by-plan/${planId}`).catch(() => null) : Promise.resolve(null),
         ]);
         
         if (shareRes?.data) {
@@ -228,8 +228,6 @@ export function ShareDetail() {
         });
     }
 
-    const remainingInt = Math.max(0, Math.ceil(session.remaining));
-
     if (session.status === 'running' && session.remaining > 0) {
       const elapsed = drill.duration - session.remaining;
 
@@ -314,7 +312,7 @@ export function ShareDetail() {
     if (!plan || !template || !user) return null;
     
     try {
-      const res = await api.post<{ record: TrainingRecord }>('/records', {
+      const res = await api.post<{ record: { id: string; user_id: string; plan_id: string; template_id?: string; title: string; status: RecordStatus; start_time?: string; end_time?: string; duration_seconds?: number; completed_drills?: number; total_drills?: number; note?: string; created_at?: string; completed_at?: string; executor?: { id: string; nickname: string; avatar: string | null } } }>('/records', {
         plan_id: plan.id,
         template_id: template.id,
         title: plan.title,
@@ -400,7 +398,7 @@ export function ShareDetail() {
     setShowCancelConfirm(false);
     
     const [recordsRes] = await Promise.all([
-      token ? api.get<any>(`/records/by-plan/${planId}`).catch(() => null) : Promise.resolve(null),
+      token ? api.get<{ records: unknown[] }>(`/records/by-plan/${planId}`).catch(() => null) : Promise.resolve(null),
     ]);
     if (recordsRes?.data?.records) {
       setUserRecords(recordsRes.data.records.map(mapRecordFromServer));
