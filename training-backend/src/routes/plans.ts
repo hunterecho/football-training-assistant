@@ -20,69 +20,36 @@ router.get('/', async (req, res) => {
     const limit = pageSize;
     const offset = (page - 1) * pageSize;
     const sharePlanId = req.query.sharePlanId as string | undefined;
+    const userId = req.auth!.userId;
 
-    const dbSelectStart = Date.now();
-    let plans = await dbSelect('plans', 'user_id', req.auth!.userId, req.auth!.userId, limit, offset);
-    logTime('dbSelect plans by user_id', dbSelectStart);
-    
-    const dbCountStart = Date.now();
-    let total = await dbCount('plans', 'user_id', req.auth!.userId);
-    logTime('dbCount plans by user_id', dbCountStart);
-
-    const sb = getSupabase();
     const adminClient = getAdminSupabase();
     
-    if (sb && adminClient) {
-      const templatesStart = Date.now();
-      plans = await Promise.all(plans.map(async (plan: any) => {
-        if (plan.template_id) {
-          const templateRes = await adminClient
-            .from('templates')
-            .select('drills')
-            .eq('id', plan.template_id)
-            .single();
-          if (!templateRes.error && templateRes.data && templateRes.data.drills) {
-            return { ...plan, drills: templateRes.data.drills };
-          }
-        }
-        return plan;
-      }));
-      logTime('fetch templates drills (parallel)', templatesStart);
-
-      const ownPlanIds = new Set(plans.map((p: any) => p.id));
-      
-      const parallelStart = Date.now();
-      const [recordRes, sharePlanData, inProgressRes] = await Promise.all([
-        sb.from('training_records').select('plan_id, source_plan_id').eq('user_id', req.auth!.userId),
-        
-        sharePlanId ? (async () => {
-          try {
-            const res = await adminClient
-              .from('plans')
-              .select('id, user_id, title, date, status, note, drills, template_id, created_at')
-              .eq('id', sharePlanId)
-              .single();
-            if (res.error || !res.data) return null;
-            const [sharerRes, tplRes] = await Promise.all([
-              adminClient.from('users').select('nickname').eq('id', res.data.user_id).single(),
-              res.data.template_id 
-                ? adminClient.from('templates').select('drills').eq('id', res.data.template_id).single()
-                : Promise.resolve({ data: null }),
-            ]);
-            return {
-              ...res.data,
-              sharer_name: sharerRes.data?.nickname || '未知用户',
-              drills: (tplRes.data?.drills as any) || res.data.drills || [],
-            };
-          } catch {
-            return null;
-          }
-        })() : Promise.resolve(null),
-        
-        sb.from('training_records').select('plan_id').eq('user_id', req.auth!.userId).in('status', ['in_progress', 'paused']),
+    if (adminClient) {
+      const [plansRes, totalRes, recordRes, inProgressRes] = await Promise.all([
+        adminClient.from('plans').select('*').eq('user_id', userId).limit(limit).offset(offset),
+        adminClient.from('plans').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+        adminClient.from('training_records').select('plan_id, source_plan_id').eq('user_id', userId),
+        adminClient.from('training_records').select('plan_id').eq('user_id', userId).in('status', ['in_progress', 'paused']),
       ]);
-      logTime('parallel queries (records + sharePlan + inProgress)', parallelStart);
 
+      let plans = (plansRes.data ?? []) as any[];
+      const total = totalRes.count ?? 0;
+        
+      const templateIds = new Set(plans.filter(p => p.template_id).map(p => p.template_id));
+      let templatesMap: Map<string, any> = new Map();
+      if (templateIds.size > 0) {
+        const tplRes = await adminClient.from('templates').select('id, drills').in('id', Array.from(templateIds));
+        if (tplRes.data) {
+          tplRes.data.forEach(t => templatesMap.set(t.id, t));
+        }
+      }
+
+      plans = plans.map(plan => {
+        const template = templatesMap.get(plan.template_id);
+        return { ...plan, drills: template?.drills || plan.drills || [] };
+      });
+
+      const ownPlanIds = new Set(plans.map(p => p.id));
       const sharedPlanIds = new Set<string>();
       if (!recordRes.error && recordRes.data) {
         recordRes.data.forEach((r: any) => {
@@ -92,48 +59,68 @@ router.get('/', async (req, res) => {
         });
       }
 
-      const sharedPlansStart = Date.now();
-      const sharedPlans: any[] = await Promise.all(
-        Array.from(sharedPlanIds).map(async (planId) => {
-          const planRes = await adminClient
-            .from('plans')
-            .select('id, user_id, title, date, status, note, drills, template_id, created_at')
-            .eq('id', planId)
-            .single();
-          if (planRes.error || !planRes.data) return null;
-          
+      let sharePlanData: any = null;
+      if (sharePlanId) {
+        const res = await adminClient
+          .from('plans')
+          .select('id, user_id, title, date, status, note, drills, template_id, created_at')
+          .eq('id', sharePlanId)
+          .single();
+        if (!res.error && res.data) {
           const [sharerRes, tplRes] = await Promise.all([
-            adminClient.from('users').select('nickname').eq('id', planRes.data.user_id).single(),
-            planRes.data.template_id 
-              ? adminClient.from('templates').select('drills').eq('id', planRes.data.template_id).single()
+            adminClient.from('users').select('nickname').eq('id', res.data.user_id).single(),
+            res.data.template_id 
+              ? adminClient.from('templates').select('drills').eq('id', res.data.template_id).single()
               : Promise.resolve({ data: null }),
           ]);
-          
-          return {
-            ...planRes.data,
-            drills: (tplRes.data?.drills as any) || planRes.data.drills || [],
-            source_plan_id: planId,
+          sharePlanData = {
+            ...res.data,
             sharer_name: sharerRes.data?.nickname || '未知用户',
+            drills: (tplRes.data?.drills as any) || res.data.drills || [],
           };
-        })
-      ).then(results => results.filter(Boolean));
-      logTime('fetch shared plans (parallel)', sharedPlansStart);
+        }
+      }
+
+      const sharedPlans: any[] = [];
+      if (sharedPlanIds.size > 0 && !sharePlanData) {
+        const planIdsArr = Array.from(sharedPlanIds);
+        const sharedPlansRes = await adminClient
+          .from('plans')
+          .select('id, user_id, title, date, status, note, drills, template_id, created_at')
+          .in('id', planIdsArr);
+        
+        if (!sharedPlansRes.error && sharedPlansRes.data) {
+          const userIds = new Set(sharedPlansRes.data.map(p => p.user_id));
+          const userRes = await adminClient.from('users').select('id, nickname').in('id', Array.from(userIds));
+          const userMap = new Map(userRes.data?.map(u => [u.id, u.nickname]) || []);
+          
+          const tplIds = new Set(sharedPlansRes.data.filter(p => p.template_id).map(p => p.template_id));
+          let tplMap: Map<string, any> = new Map();
+          if (tplIds.size > 0) {
+            const tplRes = await adminClient.from('templates').select('id, drills').in('id', Array.from(tplIds));
+            if (tplRes.data) {
+              tplRes.data.forEach(t => tplMap.set(t.id, t));
+            }
+          }
+
+          sharedPlansRes.data.forEach((plan: any) => {
+            const template = tplMap.get(plan.template_id);
+            sharedPlans.push({
+              ...plan,
+              drills: template?.drills || plan.drills || [],
+              source_plan_id: plan.id,
+              sharer_name: userMap.get(plan.user_id) || '未知用户',
+            });
+          });
+        }
+      }
 
       if (sharePlanData) {
-        const exists = plans.some((p: any) => p.id === sharePlanId);
+        const exists = plans.some(p => p.id === sharePlanId);
         if (exists) {
-          plans = plans.map((p: any) => {
-            if (p.id === sharePlanId) {
-              return { ...p, drills: sharePlanData.drills, source_plan_id: sharePlanId, sharer_name: sharePlanData.sharer_name };
-            }
-            return p;
-          });
+          plans = plans.map(p => p.id === sharePlanId ? { ...p, drills: sharePlanData.drills, source_plan_id: sharePlanId, sharer_name: sharePlanData.sharer_name } : p);
         } else {
-          plans = [{
-            ...sharePlanData,
-            source_plan_id: sharePlanId,
-            sharer_name: sharePlanData.sharer_name,
-          }, ...plans];
+          plans = [{ ...sharePlanData, source_plan_id: sharePlanId, sharer_name: sharePlanData.sharer_name }, ...plans];
         }
       } else if (sharedPlans.length > 0) {
         plans = [...sharedPlans, ...plans];
@@ -153,23 +140,30 @@ router.get('/', async (req, res) => {
         if (!aInProgress && bInProgress) return 1;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
+
+      logTime('overall /api/plans (supabase)', overallStart);
+      res.json({ plans, total, page, pageSize });
     } else {
-      plans = await Promise.all(plans.map(async (plan: any) => {
-        if (plan.template_id) {
-          const templates = await dbSelect('templates', 'id', plan.template_id);
-          if (templates.length > 0) {
-            const template = templates[0] as any;
-            if (template.drills) {
-              return { ...plan, drills: template.drills };
-            }
-          }
-        }
-        return plan;
-      }));
-      plans.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      const [plans, total] = await Promise.all([
+        dbSelect('plans', 'user_id', userId, userId, limit, offset),
+        dbCount('plans', 'user_id', userId),
+      ]);
+
+      const templateIds = new Set(plans.filter((p: any) => p.template_id).map((p: any) => p.template_id));
+      let templatesMap: Map<string, any> = new Map();
+      if (templateIds.size > 0) {
+        const templates = await dbSelect('templates', 'id', Array.from(templateIds)[0]);
+        templates.forEach((t: any) => templatesMap.set(t.id, t));
+      }
+
+      const processedPlans = (plans as any[]).map(plan => {
+        const template = templatesMap.get(plan.template_id);
+        return { ...plan, drills: template?.drills || plan.drills || [] };
+      }).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      logTime('overall /api/plans (memory)', overallStart);
+      res.json({ plans: processedPlans, total, page, pageSize });
     }
-    logTime('overall /api/plans', overallStart);
-    res.json({ plans, total, page, pageSize });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.log(`[PERF] /api/plans ERROR: ${msg}`);
