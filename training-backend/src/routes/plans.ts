@@ -7,7 +7,13 @@ const router = express.Router();
 
 router.use(authRequired);
 
+function logTime(label: string, start: number) {
+  const elapsed = (Date.now() - start).toFixed(2);
+  console.log(`[PERF] ${label}: ${elapsed}ms`);
+}
+
 router.get('/', async (req, res) => {
+  const overallStart = Date.now();
   try {
     const page = parseInt(req.query.page as string) || 1;
     const pageSize = parseInt(req.query.pageSize as string) || 20;
@@ -15,13 +21,19 @@ router.get('/', async (req, res) => {
     const offset = (page - 1) * pageSize;
     const sharePlanId = req.query.sharePlanId as string | undefined;
 
+    const dbSelectStart = Date.now();
     let plans = await dbSelect('plans', 'user_id', req.auth!.userId, req.auth!.userId, limit, offset);
+    logTime('dbSelect plans by user_id', dbSelectStart);
+    
+    const dbCountStart = Date.now();
     let total = await dbCount('plans', 'user_id', req.auth!.userId);
+    logTime('dbCount plans by user_id', dbCountStart);
 
     const sb = getSupabase();
     const adminClient = getAdminSupabase();
     
     if (sb && adminClient) {
+      const templatesStart = Date.now();
       plans = await Promise.all(plans.map(async (plan: any) => {
         if (plan.template_id) {
           const templateRes = await adminClient
@@ -35,9 +47,11 @@ router.get('/', async (req, res) => {
         }
         return plan;
       }));
+      logTime('fetch templates drills (parallel)', templatesStart);
 
       const ownPlanIds = new Set(plans.map((p: any) => p.id));
       
+      const parallelStart = Date.now();
       const [recordRes, sharePlanData, inProgressRes] = await Promise.all([
         sb.from('training_records').select('plan_id, source_plan_id').eq('user_id', req.auth!.userId),
         
@@ -67,6 +81,7 @@ router.get('/', async (req, res) => {
         
         sb.from('training_records').select('plan_id').eq('user_id', req.auth!.userId).in('status', ['in_progress', 'paused']),
       ]);
+      logTime('parallel queries (records + sharePlan + inProgress)', parallelStart);
 
       const sharedPlanIds = new Set<string>();
       if (!recordRes.error && recordRes.data) {
@@ -77,6 +92,7 @@ router.get('/', async (req, res) => {
         });
       }
 
+      const sharedPlansStart = Date.now();
       const sharedPlans: any[] = await Promise.all(
         Array.from(sharedPlanIds).map(async (planId) => {
           const planRes = await adminClient
@@ -101,6 +117,7 @@ router.get('/', async (req, res) => {
           };
         })
       ).then(results => results.filter(Boolean));
+      logTime('fetch shared plans (parallel)', sharedPlansStart);
 
       if (sharePlanData) {
         const exists = plans.some((p: any) => p.id === sharePlanId);
@@ -151,9 +168,11 @@ router.get('/', async (req, res) => {
       }));
       plans.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }
+    logTime('overall /api/plans', overallStart);
     res.json({ plans, total, page, pageSize });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    console.log(`[PERF] /api/plans ERROR: ${msg}`);
     res.status(500).json({ error: msg });
   }
 });
