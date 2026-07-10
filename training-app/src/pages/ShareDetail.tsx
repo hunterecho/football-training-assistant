@@ -13,9 +13,12 @@ const initialSession: SessionState = {
   drillIndex: 0,
   remaining: 0,
   status: 'idle',
+  previousStatus: null,
   startedAt: null,
   lastTickTs: null,
   drillStartedAt: null,
+  restDuration: 60,
+  restRemaining: 0,
 };
 
 const mapPlanFromServer = (p: { id: string; template_id?: string; title: string; date: string; status?: string; note?: string; drills?: unknown[]; sharer_name?: string; source_plan_id?: string; user_id?: string; created_at?: string; completed_at?: string }): TrainingPlan => ({

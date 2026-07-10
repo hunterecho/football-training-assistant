@@ -2,13 +2,15 @@ import { useMemo, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTrainingStore, toDateKey } from '@/store/trainingStore';
 import { DrillCard } from '@/components/Plan/DrillCard';
-import { totalDuration } from '@/utils/duration';
+import { totalDuration, formatDuration } from '@/utils/duration';
 import {
   Dumbbell,
   CalendarCheck,
   Plus,
   ChevronRight as ChevronRightIcon,
   Gift,
+  Clock,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
@@ -35,10 +37,15 @@ export function TodayPlan() {
   const [searchParams] = useSearchParams();
   const [showShareToast, setShowShareToast] = useState(false);
   const [sharePlanInfo, setSharePlanInfo] = useState<{ planId: string; title: string; sharerName: string } | null>(null);
+  const [showRestModal, setShowRestModal] = useState(false);
+  const [restDuration, setRestDuration] = useState(0);
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<any>(null);
+  const [pendingDrillIndex, setPendingDrillIndex] = useState(0);
 
   const selectedPlanId = useTrainingStore((s) => s.selectedPlanId);
   const setSelectedPlanId = useTrainingStore((s) => s.setSelectedPlanId);
-  const hasAnyActiveSession = session.status !== 'idle' && records.some(r => (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id);
+  const hasAnyActiveSession = session.status !== 'idle' && records.some(r => (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id) || session.status === 'resting';
 
   useEffect(() => {
     if (user && !searchParams.get('sharePlanId')) {
@@ -119,9 +126,12 @@ export function TodayPlan() {
             drillIndex,
             remaining: drill?.duration ?? 0,
             status: 'paused',
+            previousStatus: null,
             startedAt: inProgressRecord.startTime ?? Date.now(),
             lastTickTs: Date.now(),
             drillStartedAt: Date.now(),
+            restDuration: 60,
+            restRemaining: 0,
           },
         });
       }
@@ -266,26 +276,11 @@ export function TodayPlan() {
     }
 
     setSelectedPlanId(currentPlanId);
-
-    if (currentPlanRecord) {
-      setActiveRecord(currentPlanRecord.id);
-    } else if (currentPlan) {
-      const newRecordId = await addRecord({
-        planId: currentPlan.id,
-        templateId: currentPlan.templateId,
-        userId: user?.id || '',
-        title: currentPlan.title,
-        status: 'in_progress',
-        startTime: Date.now(),
-        totalDrills: drills.length,
-        completedDrills: 0,
-        sourcePlanId: currentPlan.sourcePlanId,
-        sharerName: currentPlan.sharerName,
-        sharerId: currentPlan.sourcePlanId ? currentPlan.sourcePlanId.split('_')[1] : undefined,
-      });
-      setActiveRecord(newRecordId);
-    }
-    startSession(sessionId, drillIdx);
+    setPendingSessionId(sessionId);
+    setPendingPlan(currentPlan);
+    setPendingDrillIndex(drillIdx);
+    setRestDuration(currentPlan?.restDuration ?? 60);
+    setShowRestModal(true);
   };
 
   const handleDrillPause = () => {
@@ -446,68 +441,37 @@ export function TodayPlan() {
                   const sessionId = currentPlan?.id;
                   if (!sessionId) return;
                   
-                  if (hasActive && session.status === 'running') {
+                  if (hasActive && (session.status === 'running' || session.status === 'resting')) {
                     pauseSession();
                   } else if (hasActive && session.status === 'paused') {
                     resumeSession();
                   } else if (completedRecord) {
-                    addRecord({
-                      planId: currentPlan.id,
-                      templateId: currentPlan.templateId,
-                      title: currentPlan.title,
-                      totalDrills: drills.length,
-                      completedDrills: 0,
-                      userId: user?.id || '',
-                      status: 'in_progress' as const,
-                      startTime: Date.now(),
-                    });
-                    setTimeout(() => {
-                      const newRecord = records.find(r => r.planId === currentPlan.id && r.status === 'in_progress' && r.userId === user?.id);
-                      if (newRecord) {
-                        setActiveRecord(newRecord.id);
-                      }
-                      startSession(sessionId);
-                    }, 100);
+                    setPendingSessionId(sessionId);
+                    setPendingPlan(currentPlan);
+                    setPendingDrillIndex(0);
+                    setRestDuration(0);
+                    setShowRestModal(true);
                   } else {
-                    const existingRecord = records.find(r => r.planId === currentPlan.id && r.status === 'in_progress' && r.userId === user?.id);
-                    if (existingRecord) {
-                      setActiveRecord(existingRecord.id);
-                      startSession(sessionId);
-                    } else {
-                      addRecord({
-                        planId: currentPlan.id,
-                        templateId: currentPlan.templateId,
-                        title: currentPlan.title,
-                        totalDrills: drills.length,
-                        completedDrills: 0,
-                        userId: user?.id || '',
-                        status: 'in_progress' as const,
-                        startTime: Date.now(),
-                      });
-                      setTimeout(() => {
-                        const newRecord = records.find(r => r.planId === currentPlan.id && r.status === 'in_progress' && r.userId === user?.id);
-                        if (newRecord) {
-                          setActiveRecord(newRecord.id);
-                        }
-                        startSession(sessionId);
-                      }, 100);
-                    }
+                    setPendingSessionId(sessionId);
+                    setPendingPlan(currentPlan);
+                    setPendingDrillIndex(0);
+                    setRestDuration(0);
+                    setShowRestModal(true);
                   }
-                  setSessionPanelOpen(true);
                 }}
                 disabled={hasAnyActiveSession && !hasActive}
                 className={cn(
                   'shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors',
                   hasAnyActiveSession && !hasActive
                     ? 'bg-theme-bg-card text-theme-text-muted cursor-not-allowed'
-                    : hasActive && session.status === 'running'
+                    : hasActive && (session.status === 'running' || session.status === 'resting')
                     ? 'bg-orange-500 text-white hover:bg-orange-600'
                     : 'bg-theme-accent text-white hover:bg-theme-accent-hover'
                 )}
               >
                 {hasAnyActiveSession && !hasActive
                   ? '训练中'
-                  : hasActive && session.status === 'running'
+                  : hasActive && (session.status === 'running' || session.status === 'resting')
                   ? '暂停'
                   : hasActive && session.status === 'paused'
                   ? '继续'
@@ -598,6 +562,111 @@ export function TodayPlan() {
           </Link>
         </div>
       ) : null}
+
+      {showRestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-theme-border bg-white p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-theme-accent" />
+                <h3 className="text-lg font-semibold text-theme-text">设置休息时长</h3>
+              </div>
+              <button
+                onClick={() => setShowRestModal(false)}
+                className="rounded-lg p-1 text-theme-text-muted hover:bg-theme-bg-card"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {pendingPlan && (
+              <div className="mt-3 text-sm text-theme-text-muted">
+                训练计划：{pendingPlan.title}
+              </div>
+            )}
+
+            <div className="mt-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-theme-text-muted">休息时长</span>
+                <span className="text-xl font-bold text-theme-accent">{formatDuration(restDuration)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="300"
+                step="15"
+                value={restDuration}
+                onChange={(e) => setRestDuration(Number(e.target.value))}
+                className="mt-3 w-full accent-theme-accent"
+              />
+              <div className="mt-2 flex justify-between text-xs text-theme-text-muted">
+                <span>无休息</span>
+                <span>5分钟</span>
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+                {[0, 30, 60, 90].map((val) => (
+                  <button
+                    key={val}
+                    onClick={() => setRestDuration(val)}
+                    className={cn(
+                      'flex-1 rounded-lg py-2 text-xs font-medium transition-colors',
+                      restDuration === val
+                        ? 'bg-theme-accent text-white'
+                        : 'bg-theme-bg-card text-theme-text-secondary hover:bg-theme-bg-card'
+                    )}
+                  >
+                    {val === 0 ? '无休息' : formatDuration(val)}
+                  </button>
+                ))}
+              </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setShowRestModal(false)}
+                className="flex-1 rounded-xl border border-theme-border bg-theme-bg-card px-4 py-3 text-sm text-theme-text-secondary hover:bg-theme-bg-card"
+              >
+                取消
+              </button>
+              <button
+                  onClick={() => {
+                    if (pendingPlan && pendingSessionId) {
+                      const existingRecord = records.find(r => r.planId === pendingPlan.id && r.status === 'in_progress' && r.userId === user?.id);
+                      if (existingRecord) {
+                        setActiveRecord(existingRecord.id);
+                        startSession(pendingSessionId, pendingDrillIndex, restDuration);
+                      } else {
+                        addRecord({
+                          planId: pendingPlan.id,
+                          templateId: pendingPlan.templateId,
+                          title: pendingPlan.title,
+                          totalDrills: pendingPlan.drills?.length || 0,
+                          completedDrills: pendingDrillIndex,
+                          userId: user?.id || '',
+                          status: 'in_progress' as const,
+                          startTime: Date.now(),
+                        });
+                        setTimeout(() => {
+                          const newRecord = records.find(r => r.planId === pendingPlan.id && r.status === 'in_progress' && r.userId === user?.id);
+                          if (newRecord) {
+                            setActiveRecord(newRecord.id);
+                          }
+                          startSession(pendingSessionId, pendingDrillIndex, restDuration);
+                        }, 100);
+                      }
+                      setSessionPanelOpen(true);
+                    }
+                    setShowRestModal(false);
+                  }}
+                  className="flex-1 rounded-xl bg-theme-accent text-white px-4 py-3 text-sm font-semibold hover:bg-theme-accent-hover"
+                >
+                  开始训练
+                </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ export const defaultTemplate: Template = {
   id: 'tpl_default_kids6',
   name: '6 岁小朋友 · 60 分钟',
   description: '适合暑期集训日常，6 岁左右小朋友，约 60 分钟',
+  restDuration: 60,
   drills: [
     {
       id: 'drill_1',

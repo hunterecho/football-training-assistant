@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Template, SessionState, Cue, TrainingRecord, TrainingPlan, RecordStatus, PlanStatus, Drill } from '@/types';
+import type { Template, SessionState, SessionStatus, Cue, TrainingRecord, TrainingPlan, RecordStatus, PlanStatus, Drill } from '@/types';
 import { uid } from '@/utils/duration';
 import { api } from '@/lib/api';
 import { useAuthStore } from './authStore';
@@ -52,7 +52,7 @@ type TrainingStore = {
   setRecords: (records: TrainingRecord[]) => void;
   toggleRecordStatus: (id: string) => void;
 
-  startSession: (templateId: string, startIndex?: number) => void;
+  startSession: (templateId: string, startIndex?: number, restDuration?: number) => void;
   pauseSession: () => void;
   resumeSession: () => void;
   nextDrill: () => void;
@@ -64,6 +64,8 @@ type TrainingStore = {
   cancelSession: () => void;
   resetCurrentDrill: () => void;
   tick: (nowTs: number) => void;
+  startRest: () => void;
+  finishRest: () => void;
 
   syncFromServer: (sharePlanId?: string) => Promise<void>;
   fetchSharePlan: (planId: string) => Promise<{ plan: TrainingPlan } | null>;
@@ -76,9 +78,12 @@ const initialSession: SessionState = {
   drillIndex: 0,
   remaining: 0,
   status: 'idle',
+  previousStatus: null,
   startedAt: null,
   lastTickTs: null,
   drillStartedAt: null,
+  restDuration: 0,
+  restRemaining: 0,
 };
 
 export const toDateKey = (d: Date): string => {
@@ -88,10 +93,11 @@ export const toDateKey = (d: Date): string => {
   return `${y}-${m}-${day}`;
 };
 
-const mapTemplateFromServer = (t: { id: string; name: string; description?: string; drills?: { id?: string; title?: string; duration?: number; summary?: string; cues?: { id?: string; text?: string; trigger?: string; seconds?: number }[] }[]; created_at?: string }): Template => ({
+const mapTemplateFromServer = (t: { id: string; name: string; description?: string; drills?: { id?: string; title?: string; duration?: number; summary?: string; cues?: { id?: string; text?: string; trigger?: string; seconds?: number }[] }[]; created_at?: string; rest_duration?: number }): Template => ({
   id: t.id,
   name: t.name,
   description: t.description,
+  restDuration: t.rest_duration ?? undefined,
   drills: (t.drills ?? []).map((d) => ({
     id: d.id ?? uid('drill'),
     title: d.title ?? '',
@@ -465,13 +471,14 @@ export const useTrainingStore = create<TrainingStore>()(
         }
       },
 
-      startSession: (templateId, startIndex = 0) => {
+      startSession: (templateId, startIndex = 0, restDuration?: number) => {
         const current = get();
         const tpl = current.templates.find((t) => t.id === templateId);
         const plan = current.plans.find((p) => p.id === templateId);
         const drills = tpl?.drills ?? plan?.drills ?? [];
         const drill = drills[startIndex];
         if (!drill) return;
+        const effectiveRestDuration = restDuration ?? tpl?.restDuration ?? plan?.restDuration ?? 0;
         set({
           activeTemplateId: templateId,
           session: {
@@ -479,20 +486,42 @@ export const useTrainingStore = create<TrainingStore>()(
             drillIndex: startIndex,
             remaining: drill.duration,
             status: 'running',
+            previousStatus: null,
             startedAt: Date.now(),
             lastTickTs: Date.now(),
             drillStartedAt: Date.now(),
+            restDuration: effectiveRestDuration,
+            restRemaining: 0,
           },
         });
       },
 
+      startRest: () => {
+        const { session } = get();
+        if (session.status !== 'finished' || session.restDuration <= 0) return;
+        set((s) => ({
+          session: {
+            ...s.session,
+            status: 'resting',
+            restRemaining: s.session.restDuration,
+            lastTickTs: Date.now(),
+          },
+        }));
+      },
+
+      finishRest: () => {
+        const { session } = get();
+        if (session.status !== 'resting') return;
+        get().nextDrill();
+      },
+
       pauseSession: () => {
         const { session, activeRecordId, records } = get();
-        if (session.status !== 'running') return;
+        if (session.status !== 'running' && session.status !== 'resting') return;
         const record = activeRecordId ? records.find((r) => r.id === activeRecordId) : null;
         if (record && record.startTime) {
           const elapsedSec = Math.round((Date.now() - record.startTime) / 1000);
-          const completedDrills = session.drillIndex;
+          const completedDrills = session.status === 'resting' ? session.drillIndex + 1 : session.drillIndex;
           get().updateRecord(record.id, {
             status: 'paused' as RecordStatus,
             durationSeconds: elapsedSec,
@@ -503,7 +532,9 @@ export const useTrainingStore = create<TrainingStore>()(
           session: {
             ...s.session,
             status: 'paused',
+            previousStatus: s.session.status,
             remaining: Math.max(0, s.session.remaining),
+            restRemaining: Math.max(0, s.session.restRemaining),
           },
         }));
       },
@@ -512,10 +543,17 @@ export const useTrainingStore = create<TrainingStore>()(
         set((s) => {
           if (s.session.status !== 'paused' && s.session.status !== 'ready') return {};
           const now = Date.now();
+          let resumeStatus: SessionStatus = 'running';
+          if (s.session.status === 'paused' && s.session.previousStatus) {
+            resumeStatus = s.session.previousStatus;
+          } else if (s.session.restRemaining > 0) {
+            resumeStatus = 'resting';
+          }
           return {
             session: {
               ...s.session,
-              status: 'running',
+              status: resumeStatus,
+              previousStatus: null,
               lastTickTs: now,
               drillStartedAt: now,
             },
@@ -647,21 +685,72 @@ export const useTrainingStore = create<TrainingStore>()(
         });
       },
 
-      tick: (nowTs) =>
-        set((s) => {
-          if (s.session.status !== 'running') return {};
+      tick: (nowTs) => {
+        const s = get();
+        if (s.session.status === 'running') {
           const lastTs = s.session.lastTickTs ?? nowTs;
           const deltaMs = Math.max(0, nowTs - lastTs);
           const deltaSec = deltaMs / 1000;
           const remaining = Math.max(0, s.session.remaining - deltaSec);
-          const next: SessionState = {
-            ...s.session,
-            remaining,
-            lastTickTs: nowTs,
-            status: remaining <= 0 ? 'finished' : 'running',
-          };
-          return { session: next };
-        }),
+          if (remaining <= 0) {
+            const current = get();
+            const tpl = current.templates.find((t) => t.id === current.session.templateId);
+            const plan = current.plans.find((p) => p.id === current.session.templateId);
+            const drills = tpl?.drills ?? plan?.drills ?? [];
+            const completedDrills = current.session.drillIndex + 1;
+            
+            if (current.activeRecordId) {
+              const record = current.records.find((r) => r.id === current.activeRecordId);
+              if (record && record.startTime) {
+                const elapsedSec = Math.round((Date.now() - record.startTime) / 1000);
+                get().updateRecord(record.id, {
+                  durationSeconds: elapsedSec,
+                  completedDrills,
+                });
+              }
+            }
+            
+            if (current.session.drillIndex < drills.length - 1 && current.session.restDuration > 0) {
+              set((state) => ({
+                session: {
+                  ...state.session,
+                  remaining: 0,
+                  restRemaining: state.session.restDuration,
+                  lastTickTs: nowTs,
+                  status: 'resting',
+                },
+              }));
+            } else {
+              get().finishCurrentDrill();
+            }
+          } else {
+            set((state) => ({
+              session: {
+                ...state.session,
+                remaining,
+                lastTickTs: nowTs,
+              },
+            }));
+          }
+        }
+        if (s.session.status === 'resting') {
+          const lastTs = s.session.lastTickTs ?? nowTs;
+          const deltaMs = Math.max(0, nowTs - lastTs);
+          const deltaSec = deltaMs / 1000;
+          const restRemaining = Math.max(0, s.session.restRemaining - deltaSec);
+          if (restRemaining <= 0) {
+            get().nextDrill();
+          } else {
+            set((state) => ({
+              session: {
+                ...state.session,
+                restRemaining,
+                lastTickTs: nowTs,
+              },
+            }));
+          }
+        }
+      },
 
       syncFromServer: async (sharePlanId?: string) => {
         const token = useAuthStore.getState().token;

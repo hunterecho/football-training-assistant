@@ -84,6 +84,9 @@ export function Plans() {
   const [editingDate, setEditingDate] = useState('');
   const [shareMenuOpen, setShareMenuOpen] = useState<string | null>(null);
   const [shareStatusMap, setShareStatusMap] = useState<Map<string, { exists: boolean; terminated: boolean }>>(new Map());
+  const [showRestModal, setShowRestModal] = useState(false);
+  const [restDuration, setRestDuration] = useState(0);
+  const [pendingPlan, setPendingPlan] = useState<any>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -186,7 +189,7 @@ export function Plans() {
 
   const addRecord = useTrainingStore((s) => s.addRecord);
 
-  const handlePlanStart = async (planId: string) => {
+  const handlePlanStart = (planId: string) => {
     setActivePlan(planId);
     setSelectedPlanId(planId);
     const plan = plans.find(p => p.id === planId);
@@ -195,19 +198,10 @@ export function Plans() {
       resumeSession();
     } else if (session.status === 'idle') {
       if (plan) {
-        const newRecordId = await addRecord({
-          planId: plan.id,
-          templateId: plan.templateId,
-          userId: user?.id || '',
-          title: plan.title,
-          status: 'in_progress',
-          startTime: Date.now(),
-          totalDrills: plan.drills?.length || 0,
-          completedDrills: 0,
-        });
-        setActiveRecord(newRecordId);
+        setPendingPlan(plan);
+        setRestDuration(plan.restDuration ?? 0);
+        setShowRestModal(true);
       }
-      startSession(planId, 0);
     }
   };
 
@@ -678,6 +672,99 @@ export function Plans() {
             下一页
             <ChevronRight className="h-4 w-4" />
           </button>
+        </div>
+      )}
+
+      {showRestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-theme-border bg-white p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-theme-accent" />
+                <h3 className="text-lg font-semibold text-theme-text">设置休息时长</h3>
+              </div>
+              <button
+                onClick={() => setShowRestModal(false)}
+                className="rounded-lg p-1 text-theme-text-muted hover:bg-theme-bg-card"
+              >
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+
+            {pendingPlan && (
+              <div className="mt-3 text-sm text-theme-text-muted">
+                训练计划：{pendingPlan.title}
+              </div>
+            )}
+
+            <div className="mt-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-theme-text-muted">休息时长</span>
+                <span className="text-xl font-bold text-theme-accent">{restDuration === 0 ? '无休息' : formatDuration(restDuration)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="300"
+                step="15"
+                value={restDuration}
+                onChange={(e) => setRestDuration(Number(e.target.value))}
+                className="mt-3 w-full accent-theme-accent"
+              />
+              <div className="mt-2 flex justify-between text-xs text-theme-text-muted">
+                <span>无休息</span>
+                <span>5分钟</span>
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              {[0, 30, 60, 90].map((val) => (
+                <button
+                  key={val}
+                  onClick={() => setRestDuration(val)}
+                  className={cn(
+                    'flex-1 rounded-lg py-2 text-xs font-medium transition-colors',
+                    restDuration === val
+                      ? 'bg-theme-accent text-white'
+                      : 'bg-theme-bg-card text-theme-text-secondary hover:bg-theme-bg-card'
+                  )}
+                >
+                  {val === 0 ? '无休息' : formatDuration(val)}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setShowRestModal(false)}
+                className="flex-1 rounded-xl border border-theme-border bg-theme-bg-card px-4 py-3 text-sm text-theme-text-secondary hover:bg-theme-bg-card"
+              >
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  if (pendingPlan) {
+                    const newRecordId = await addRecord({
+                      planId: pendingPlan.id,
+                      templateId: pendingPlan.templateId,
+                      userId: user?.id || '',
+                      title: pendingPlan.title,
+                      status: 'in_progress',
+                      startTime: Date.now(),
+                      totalDrills: pendingPlan.drills?.length || 0,
+                      completedDrills: 0,
+                    });
+                    setActiveRecord(newRecordId);
+                    startSession(pendingPlan.id, 0, restDuration);
+                  }
+                  setShowRestModal(false);
+                }}
+                className="flex-1 rounded-xl bg-theme-accent text-white px-4 py-3 text-sm font-semibold hover:bg-theme-accent-hover"
+              >
+                开始训练
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

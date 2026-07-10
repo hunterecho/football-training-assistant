@@ -20,6 +20,7 @@ export type Template = {
   name: string;
   description?: string;
   drills: Drill[];
+  restDuration?: number;
   createdAt: number;
 };
 
@@ -38,6 +39,7 @@ export type TrainingPlan = {
   completedAt?: number;
   sourcePlanId?: string;
   sharerName?: string;
+  restDuration?: number;
 };
 
 export type RecordStatus = 'planned' | 'in_progress' | 'completed' | 'skipped' | 'paused';
@@ -69,16 +71,19 @@ export type TrainingRecord = {
   sharerId?: string;
 };
 
-export type SessionStatus = 'idle' | 'running' | 'paused' | 'finished' | 'ready';
+export type SessionStatus = 'idle' | 'running' | 'paused' | 'finished' | 'ready' | 'resting';
 
 export type SessionState = {
   templateId: string | null;
   drillIndex: number;
   remaining: number;
   status: SessionStatus;
+  previousStatus: SessionStatus | null;
   startedAt: number | null;
   lastTickTs: number | null;
   drillStartedAt: number | null;
+  restDuration: number;
+  restRemaining: number;
 };
 
 export type LLMProvider = 'none' | 'dashscope' | 'openai' | 'custom';

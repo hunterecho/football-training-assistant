@@ -15,6 +15,9 @@ import {
   Volume2,
   VolumeX,
   Trophy,
+  Clock,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -31,10 +34,15 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   const pauseSession = useTrainingStore((s) => s.pauseSession);
   const resumeSession = useTrainingStore((s) => s.resumeSession);
   const startSessionRaw = useTrainingStore((s) => s.startSession);
+  const startRestRaw = useTrainingStore((s) => s.startRest);
+  const finishRestRaw = useTrainingStore((s) => s.finishRest);
   const resetSession = useTrainingStore((s) => s.resetSession);
   const addRecord = useTrainingStore((s) => s.addRecord);
   const updateRecord = useTrainingStore((s) => s.updateRecord);
   const toggleRecordStatus = useTrainingStore((s) => s.toggleRecordStatus);
+
+  const [showRestSettings, setShowRestSettings] = useState(false);
+  const [customRestDuration, setCustomRestDuration] = useState(0);
 
   const settings = useSettingsStore((s) => s.settings);
   const [muted, setMuted] = useState(false);
@@ -88,6 +96,10 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   prevDrillRef.current = prevDrillRaw;
   const startSessionRef = useRef(startSessionRaw);
   startSessionRef.current = startSessionRaw;
+  const startRestRef = useRef(startRestRaw);
+  startRestRef.current = startRestRaw;
+  const finishRestRef = useRef(finishRestRaw);
+  finishRestRef.current = finishRestRaw;
 
   const lastEndedRef = useRef<boolean>(false);
   const lastFiveSecRef = useRef<number>(0);
@@ -146,7 +158,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
 
   // Main tick loop — 250ms interval. Uses ref so effect isn't recreated every render.
   useEffect(() => {
-    if (session.status !== 'running') return;
+    if (session.status !== 'running' && session.status !== 'resting') return;
     const id = window.setInterval(() => {
       tickRef.current(Date.now());
     }, 250);
@@ -157,7 +169,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   useEffect(() => {
     if (session.status === 'paused') {
       speech.pause();
-    } else if (session.status === 'running') {
+    } else if (session.status === 'running' || session.status === 'resting') {
       speech.resume();
     } else if (session.status === 'idle' || session.status === 'ready') {
       speech.clear();
@@ -278,15 +290,16 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
             toggleRecordStatus(activeRecordId);
           }
         }
+        beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
       } else {
         const next = template.drills[session.drillIndex + 1];
-        speech.enqueue(`${drill.title} 完成，准备进入 ${next?.title ?? '下一环节'}`);
+        speech.enqueue(`${drill.title} 完成，休息 ${formatDuration(session.restDuration)}`);
+        beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
+        window.setTimeout(() => {
+          speech.clear();
+          startRestRef.current();
+        }, 1800);
       }
-      beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
-      window.setTimeout(() => {
-        speech.clear();
-        nextDrillRef.current();
-      }, 1800);
     }
   }, [session, drill, template, speech, beep, settings.soundEnabled]);
 
@@ -309,6 +322,9 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
 
   if (session.status === 'idle' || !drill) {
     const totalSeconds = template ? template.drills.reduce((a, d) => a + d.duration, 0) : 0;
+    const defaultRestDuration = template?.restDuration ?? 60;
+    const displayRestDuration = customRestDuration > 0 ? customRestDuration : defaultRestDuration;
+
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center gap-6 p-6 text-center">
         <div className="w-full max-w-sm rounded-3xl border border-theme-border bg-theme-bg-card-light p-6">
@@ -330,6 +346,77 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
           )}
         </div>
 
+        <div className="w-full max-w-sm">
+          <button
+            onClick={() => setShowRestSettings(!showRestSettings)}
+            className="flex w-full items-center justify-between rounded-2xl border border-theme-border bg-theme-bg-card-light p-4 hover:bg-theme-bg-card"
+          >
+            <div className="flex items-center gap-3">
+              <Clock className="h-5 w-5 text-theme-accent" />
+              <div className="text-left">
+                <div className="text-sm font-medium text-theme-text">环节间休息时长</div>
+                <div className="text-xs text-theme-text-muted">
+                  {customRestDuration > 0 ? '自定义' : `教练推荐 ${formatDuration(defaultRestDuration)}`}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-bold text-theme-accent">{formatDuration(displayRestDuration)}</span>
+              {showRestSettings ? (
+                <ChevronUp className="h-5 w-5 text-theme-text-muted" />
+              ) : (
+                <ChevronDown className="h-5 w-5 text-theme-text-muted" />
+              )}
+            </div>
+          </button>
+
+          {showRestSettings && (
+            <div className="mt-3 rounded-2xl border border-theme-border bg-theme-bg-card-light p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-sm text-theme-text-muted">休息时长（秒）</span>
+                <span className="text-lg font-bold text-theme-accent">{displayRestDuration}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="300"
+                step="15"
+                value={displayRestDuration}
+                onChange={(e) => setCustomRestDuration(Number(e.target.value))}
+                className="w-full accent-theme-accent"
+              />
+              <div className="mt-2 flex justify-between text-xs text-theme-text-muted">
+                <span>无休息</span>
+                <span>5分钟</span>
+              </div>
+              <div className="mt-3 flex gap-2">
+                {[30, 45, 60, 90].map((val) => (
+                  <button
+                    key={val}
+                    onClick={() => setCustomRestDuration(val)}
+                    className={cn(
+                      'flex-1 rounded-lg py-2 text-xs font-medium transition-colors',
+                      displayRestDuration === val
+                        ? 'bg-theme-accent text-white'
+                        : 'bg-theme-bg-card text-theme-text-secondary hover:bg-theme-bg-card'
+                    )}
+                  >
+                    {formatDuration(val)}
+                  </button>
+                ))}
+              </div>
+              {customRestDuration > 0 && (
+                <button
+                  onClick={() => setCustomRestDuration(0)}
+                  className="mt-2 w-full text-xs text-theme-text-muted hover:text-theme-accent"
+                >
+                  使用教练推荐的休息时长
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="flex flex-col items-center gap-2 text-theme-text-muted">
           <div className="text-sm">准备好了吗？</div>
           <div className="text-xs">点击下方按钮开始训练</div>
@@ -344,7 +431,8 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
           </button>
           <button
             onClick={() => {
-              startSessionRef.current(template!.id, 0);
+              const restDuration = customRestDuration > 0 ? customRestDuration : defaultRestDuration;
+              startSessionRef.current(template!.id, 0, restDuration);
             }}
             disabled={!template}
             className="rounded-xl bg-theme-accent text-white px-6 py-3 text-sm font-semibold hover:bg-theme-accent-hover disabled:opacity-50"
@@ -358,7 +446,105 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
 
   const isLast = session.drillIndex >= template.drills.length - 1 && session.status === 'finished';
   const progress = drill.duration === 0 ? 0 : 1 - session.remaining / drill.duration;
+  const restProgress = session.restDuration === 0 ? 0 : 1 - session.restRemaining / session.restDuration;
   const totalDrills = template.drills.length;
+  const nextDrill = template?.drills[session.drillIndex + 1];
+
+  if (session.status === 'resting') {
+    return (
+      <div className="relative mx-auto w-full max-w-2xl pb-28 pt-14">
+        <div className="flex items-center justify-between p-4">
+          <button
+            onClick={onBack}
+            className="rounded-lg bg-theme-bg-card px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-card"
+          >
+            返回
+          </button>
+          <div className="text-sm text-theme-text-muted">
+            {session.drillIndex + 1} / {totalDrills}
+          </div>
+          <button
+            onClick={() => setMuted((m) => !m)}
+            className="rounded-lg bg-theme-bg-card p-2 text-theme-text-secondary hover:bg-theme-bg-card"
+            aria-label="静音切换"
+          >
+            {effectiveSpeechEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          </button>
+        </div>
+
+        <div className="px-4">
+          <div className="mb-2 text-center text-xs uppercase tracking-widest text-theme-accent">
+            休息时间
+          </div>
+          <h1 className="text-center text-3xl font-bold text-theme-text">休息中</h1>
+          {nextDrill && (
+            <p className="mt-1 text-center text-sm text-theme-text-muted">
+              下一环节：{nextDrill.title}
+            </p>
+          )}
+        </div>
+
+        <div className="relative mx-auto my-6 flex h-72 w-72 items-center justify-center">
+          <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" />
+            <circle
+              cx="50"
+              cy="50"
+              r="45"
+              fill="none"
+              stroke="#f59e0b"
+              strokeWidth="3"
+              strokeDasharray={`${2 * Math.PI * 45}`}
+              strokeDashoffset={`${2 * Math.PI * 45 * (1 - restProgress)}`}
+              strokeLinecap="round"
+              style={{ transition: 'stroke-dashoffset 0.4s linear' }}
+            />
+          </svg>
+          <div className="flex flex-col items-center">
+            <div className={cn('font-mono text-6xl font-bold tabular-nums', session.restRemaining <= 5 ? 'text-red-400' : 'text-theme-text')}>
+              {formatDuration(session.restRemaining)}
+            </div>
+            <div className="mt-2 text-xs text-amber-500">休息中</div>
+          </div>
+        </div>
+
+        <div className="mx-auto flex max-w-md items-center justify-center gap-3 px-4">
+          <button
+            onClick={() => { speech.clear(); finishRestRef.current(); }}
+            className="flex h-14 w-14 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
+            aria-label="跳过休息"
+          >
+            <SkipForward className="h-5 w-5" />
+          </button>
+          <button
+            onClick={() => {
+              if (session.status === 'resting') {
+                speech.pause();
+                pauseSession();
+              } else if (session.status === 'paused') {
+                resumeSession();
+                speech.resume();
+              }
+            }}
+            className="flex h-20 w-20 items-center justify-center rounded-full bg-amber-500 text-white shadow-lg shadow-amber-500/30 hover:bg-amber-600"
+          >
+            {session.status === 'resting' ? (
+              <Pause className="h-8 w-8" />
+            ) : (
+              <Play className="h-8 w-8 translate-x-0.5" />
+            )}
+          </button>
+          <button
+            onClick={() => { speech.clear(); finishRestRef.current(); }}
+            className="flex h-14 w-14 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
+            aria-label="开始下一环节"
+          >
+            <SkipForward className="h-5 w-5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative mx-auto w-full max-w-2xl pb-28 pt-14">
