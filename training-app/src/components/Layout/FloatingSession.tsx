@@ -133,6 +133,9 @@ export function FloatingSession() {
   const prevDrillIndexRef = useRef<number>(session.drillIndex);
   const recordIdRef = useRef<string | null>(null);
   const firedIntroRef = useRef<boolean>(false);
+  const firedRestStartRef = useRef<boolean>(false);
+  const firedRestEndRef = useRef<boolean>(false);
+  const lastRestSecRef = useRef<number>(0);
 
   useWakeLock(settings.keepScreenAwake && session.status === 'running');
 
@@ -301,13 +304,47 @@ export function FloatingSession() {
         beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
       } else {
         const next = sessionDrills[session.drillIndex + 1];
-        speech.enqueue(`${drill.title} 完成，休息 ${formatDuration(session.restDuration)}`);
+        speech.enqueue(`${drill.title} 完成`);
         beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
         window.setTimeout(() => {
           speech.clear();
           startRestRef.current();
         }, 1800);
       }
+    }
+
+    if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
+      firedRestStartRef.current = true;
+      const next = sessionDrills[session.drillIndex + 1];
+      const restMsg = next ? `现在开始休息，准备下一个环节：${next.title}` : '现在开始休息';
+      speech.enqueue(restMsg);
+      beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
+    }
+
+    if (session.status === 'resting' && session.restRemaining > 0) {
+      const restRemainingInt = Math.max(0, Math.ceil(session.restRemaining));
+      
+      if (restRemainingInt === 10 && !firedRestEndRef.current) {
+        firedRestEndRef.current = true;
+        const next = sessionDrills[session.drillIndex + 1];
+        const endMsg = next ? `休息即将结束，准备开始：${next.title}` : '休息即将结束';
+        speech.enqueue(endMsg);
+        beep({ enabled: settings.soundEnabled, frequency: 660, durationMs: 120 });
+      }
+
+      if (restRemainingInt <= 5 && restRemainingInt !== lastRestSecRef.current) {
+        lastRestSecRef.current = restRemainingInt;
+        if (restRemainingInt > 0) {
+          speech.enqueue(`${restRemainingInt}`);
+          beep({ enabled: settings.soundEnabled, frequency: 440, durationMs: 80 });
+        }
+      }
+    }
+
+    if (session.status !== 'resting') {
+      firedRestStartRef.current = false;
+      firedRestEndRef.current = false;
+      lastRestSecRef.current = 0;
     }
   }, [session, drill, speech, beep, settings.soundEnabled]);
 
