@@ -659,10 +659,12 @@ export const useTrainingStore = create<TrainingStore>()(
         if (activeRecordId) {
           const record = records.find((r) => r.id === activeRecordId);
           if (record && record.userId === currentUserId) {
-            removeRecord(activeRecordId);
+            if (record.status === 'in_progress' || record.status === 'paused') {
+              removeRecord(activeRecordId);
+            }
           }
         }
-        set({ session: initialSession });
+        set({ session: initialSession, activeRecordId: null });
       },
 
       resetCurrentDrill: () => {
@@ -788,32 +790,64 @@ export const useTrainingStore = create<TrainingStore>()(
             const current = get();
             const currentUserId = useAuthStore.getState().user?.id;
             if (current.session.status === 'idle') {
-              const inProgressRecord = current.records.find(
-                (r) => r.status === 'in_progress' && r.userId === currentUserId
+              const activeRecords = current.records.filter(
+                (r) => (r.status === 'in_progress' || r.status === 'paused') && r.userId === currentUserId
               );
-              if (inProgressRecord) {
-                const plan = current.plans.find((p) => p.id === inProgressRecord.planId);
-                const drills = plan?.drills ?? [];
+              
+              if (activeRecords.length > 0) {
+                const todayKey = new Date().toISOString().split('T')[0];
                 
-                if (drills.length > 0) {
-                  const completedCount = Math.max(0, inProgressRecord.completedDrills ?? 0);
-                  const drillIndex = Math.min(completedCount, Math.max(0, drills.length - 1));
-                  const drill = drills[drillIndex];
-                  const remaining = drill ? drill.duration : 0;
-                  const isLastFinished = completedCount >= drills.length;
-                  set({
-                    session: {
-                      ...initialSession,
-                      templateId: inProgressRecord.planId,
-                      drillIndex,
-                      remaining,
-                      status: isLastFinished ? 'finished' : 'ready',
-                      startedAt: inProgressRecord.startTime ?? null,
-                      lastTickTs: null,
-                      drillStartedAt: null,
-                    },
-                    activeRecordId: inProgressRecord.id,
+                const sortedPlansWithRecords = [...activeRecords]
+                  .map(record => {
+                    const plan = current.plans.find((p) => p.id === record.planId);
+                    return { record, plan };
+                  })
+                  .filter(({ plan }) => plan)
+                  .sort((a, b) => {
+                    const aIsShared = !!a.plan?.sourcePlanId;
+                    const bIsShared = !!b.plan?.sourcePlanId;
+                    if (aIsShared !== bIsShared) {
+                      return aIsShared ? -1 : 1;
+                    }
+                    const aIsToday = a.plan?.date === todayKey;
+                    const bIsToday = b.plan?.date === todayKey;
+                    if (aIsToday !== bIsToday) {
+                      return aIsToday ? -1 : 1;
+                    }
+                    const aIsPast = a.plan?.date && a.plan.date < todayKey;
+                    const bIsPast = b.plan?.date && b.plan.date < todayKey;
+                    if (aIsPast !== bIsPast) {
+                      return aIsPast ? 1 : -1;
+                    }
+                    return (a.plan?.date || '').localeCompare(b.plan?.date || '');
                   });
+                
+                const bestMatch = sortedPlansWithRecords[0];
+                if (bestMatch) {
+                  const { record, plan } = bestMatch;
+                  const drills = plan?.drills ?? [];
+                  
+                  if (drills.length > 0) {
+                    const completedCount = Math.max(0, record.completedDrills ?? 0);
+                    const drillIndex = Math.min(completedCount, Math.max(0, drills.length - 1));
+                    const drill = drills[drillIndex];
+                    const remaining = drill ? drill.duration : 0;
+                    const isLastFinished = completedCount >= drills.length;
+                    set({
+                      session: {
+                        ...initialSession,
+                        templateId: record.planId,
+                        drillIndex,
+                        remaining,
+                        status: isLastFinished ? 'finished' : 'ready',
+                        startedAt: record.startTime ?? null,
+                        lastTickTs: null,
+                        drillStartedAt: null,
+                        restDuration: record.restDuration ?? 0,
+                      },
+                      activeRecordId: record.id,
+                    });
+                  }
                 }
               }
             }

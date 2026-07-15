@@ -189,8 +189,9 @@ export function FloatingSession() {
   }, [session.status]);
 
   useEffect(() => {
-    if (session.status === 'idle') {
+    if (session.status === 'idle' || session.status === 'finished') {
       setOpen(false);
+      setSessionPanelOpen(false);
     }
   }, [session.status]);
 
@@ -202,7 +203,7 @@ export function FloatingSession() {
   }, [session.status, session.templateId, sessionDrills.length]);
 
   useEffect(() => {
-    if (sessionPanelOpen && (session.status === 'running' || session.status === 'paused' || session.status === 'finished' || session.status === 'resting')) {
+    if (sessionPanelOpen && (session.status === 'running' || session.status === 'paused' || session.status === 'resting')) {
       setOpen(true);
     }
   }, [sessionPanelOpen]);
@@ -285,7 +286,7 @@ export function FloatingSession() {
     ) {
       lastFiveSecRef.current = remainingInt;
       if (remainingInt > 0) {
-        speech.enqueue(`${remainingInt}`);
+        speech.enqueue(`${remainingInt}`, 'high');
         beep({ enabled: settings.soundEnabled, frequency: 440, durationMs: 80 });
       }
     }
@@ -335,7 +336,7 @@ export function FloatingSession() {
       if (restRemainingInt <= 5 && restRemainingInt !== lastRestSecRef.current) {
         lastRestSecRef.current = restRemainingInt;
         if (restRemainingInt > 0) {
-          speech.enqueue(`${restRemainingInt}`);
+          speech.enqueue(`${restRemainingInt}`, 'high');
           beep({ enabled: settings.soundEnabled, frequency: 440, durationMs: 80 });
         }
       }
@@ -357,7 +358,7 @@ export function FloatingSession() {
   return (
     <>
       {/* Floating button - only show when training is active */}
-      {sessionDrills.length > 0 && session.status !== 'idle' && (
+      {sessionDrills.length > 0 && session.status !== 'idle' && session.status !== 'finished' && (
         <button
           onClick={() => setOpen(true)}
           className={cn(

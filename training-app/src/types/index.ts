@@ -69,6 +69,7 @@ export type TrainingRecord = {
   sourcePlanId?: string;
   sharerName?: string;
   sharerId?: string;
+  restDuration?: number;
 };
 
 export type SessionStatus = 'idle' | 'running' | 'paused' | 'finished' | 'ready' | 'resting';

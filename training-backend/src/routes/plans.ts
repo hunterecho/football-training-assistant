@@ -25,8 +25,12 @@ router.get('/', async (req, res) => {
     const adminClient = getAdminSupabase();
     
     if (adminClient) {
+      const query = adminClient.from('plans').select('*').eq('user_id', userId).limit(limit);
+      if (offset > 0) {
+        query.range(offset, offset + limit - 1);
+      }
       const [plansRes, totalRes, recordRes, inProgressRes] = await Promise.all([
-        adminClient.from('plans').select('*').eq('user_id', userId).limit(limit).offset(offset),
+        query,
         adminClient.from('plans').select('id', { count: 'exact', head: true }).eq('user_id', userId),
         adminClient.from('training_records').select('plan_id, source_plan_id').eq('user_id', userId),
         adminClient.from('training_records').select('plan_id').eq('user_id', userId).in('status', ['in_progress', 'paused']),

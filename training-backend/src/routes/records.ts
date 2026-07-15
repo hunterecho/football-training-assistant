@@ -66,7 +66,7 @@ router.get('/by-plan/:planId', async (req, res) => {
         .select(`
           id, user_id, plan_id, template_id, title, status,
           start_time, end_time, duration_seconds, completed_drills,
-          total_drills, note, created_at, completed_at,
+          total_drills, note, created_at, completed_at, rest_duration,
           executor:users!training_records_user_id_fkey (id, nickname, avatar)
         `)
         .eq('plan_id', planId)
@@ -216,7 +216,7 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { plan_id, template_id, title, status, start_time, end_time, duration_seconds, completed_drills, total_drills, note, source_plan_id, sharer_name, sharer_id } = req.body as {
+    const { plan_id, template_id, title, status, start_time, end_time, duration_seconds, completed_drills, total_drills, note, source_plan_id, sharer_name, sharer_id, rest_duration } = req.body as {
       plan_id?: string;
       template_id?: string;
       title?: string;
@@ -230,11 +230,13 @@ router.post('/', async (req, res) => {
       source_plan_id?: string;
       sharer_name?: string;
       sharer_id?: string;
+      rest_duration?: number;
     };
     if (!title) {
       res.status(400).json({ error: 'title is required' });
       return;
     }
+    
     const record = await dbInsert(
       'training_records',
       {
@@ -252,6 +254,7 @@ router.post('/', async (req, res) => {
         source_plan_id,
         sharer_name,
         sharer_id,
+        rest_duration,
       },
       req.auth!.userId
     );

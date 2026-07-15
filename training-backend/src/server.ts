@@ -8,6 +8,7 @@ import { planRoutes } from './routes/plans';
 import { recordRoutes } from './routes/records';
 import { userRoutes } from './routes/users';
 import { settingsRoutes } from './routes/settings';
+import { llmRoutes } from './routes/llm';
 import { getSupabase } from './db/client';
 
 async function ensurePlanColumns() {
@@ -51,6 +52,38 @@ async function ensurePlanColumns() {
       console.warn('[schema] Failed to add columns:', e);
     }
   }
+  
+  try {
+    await sb.from('training_records').select('rest_duration').limit(1);
+    console.log('[schema] rest_duration column exists');
+  } catch {
+    console.log('[schema] Adding rest_duration column to training_records table...');
+    try {
+      const url = `${config.supabaseUrl}/rest/v1/rpc/execute_sql`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.supabaseServiceKey}`,
+          'apikey': config.supabaseServiceKey
+        },
+        body: JSON.stringify({
+          sql: `
+            alter table if exists public.training_records
+              add column if not exists rest_duration integer default 0;
+          `
+        })
+      });
+      if (response.ok) {
+        console.log('[schema] rest_duration column added successfully');
+      } else {
+        const data = await response.json();
+        console.warn('[schema] Failed to add rest_duration column:', data);
+      }
+    } catch (e) {
+      console.warn('[schema] Failed to add rest_duration column:', e);
+    }
+  }
 }
 
 const app = express();
@@ -92,6 +125,7 @@ app.use('/api/plans', planRoutes);
 app.use('/api/records', recordRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/llm', llmRoutes);
 
 app.use(
   (

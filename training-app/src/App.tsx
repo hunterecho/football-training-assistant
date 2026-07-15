@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { BottomNav } from '@/components/Layout/BottomNav';
 import { FloatingSession } from '@/components/Layout/FloatingSession';
@@ -8,6 +8,7 @@ import { TemplateManager } from '@/pages/TemplateManager';
 import { ImportPlan } from '@/pages/ImportPlan';
 import { Settings } from '@/pages/Settings';
 import { Login } from '@/pages/Login';
+import { ShareDetail } from '@/pages/ShareDetail';
 
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -32,20 +33,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function ShareRedirect() {
-  const { planId } = useParams<{ planId: string }>();
-  const navigate = useNavigate();
-  
-  useEffect(() => {
-    if (planId) {
-      navigate(`/?sharePlanId=${planId}`, { replace: true });
-    } else {
-      navigate('/', { replace: true });
-    }
-  }, [planId, navigate]);
-  
-  return null;
-}
+
 
 function AppContent() {
   const user = useAuthStore((s) => s.user);
@@ -75,7 +63,7 @@ function AppContent() {
       <div className="mx-auto min-h-screen w-full">
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/share/:planId" element={<RequireAuth><ShareRedirect /></RequireAuth>} />
+          <Route path="/share/:planId" element={<RequireAuth><ShareDetail /></RequireAuth>} />
           <Route path="/" element={<RequireAuth><TodayPlan /></RequireAuth>} />
           <Route path="/schedule" element={<RequireAuth><Plans /></RequireAuth>} />
           <Route path="/templates" element={<RequireAuth><TemplateManager /></RequireAuth>} />
