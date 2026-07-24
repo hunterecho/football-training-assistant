@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useTrainingStore } from '@/store/trainingStore';
-import { useSettingsStore } from '@/store/settingsStore';
 import { parseMarkdownDocument, type ParseWarning } from '@/utils/docParser';
-import { parseWithLLM, drillInputsToTemplate } from '@/utils/llmParser';
+import { drillInputsToTemplate } from '@/utils/llmParser';
 import type { DrillInput } from '@/types';
-import { uid, formatDurationChinese } from '@/utils/duration';
+import { formatDurationChinese } from '@/utils/duration';
 import { exampleMarkdownDoc } from '@/data/defaultTemplate';
+import { api } from '@/lib/api';
 import {
   Upload,
   FileText,
@@ -15,15 +15,24 @@ import {
   Save,
   RotateCcw,
   FileUp,
+  Crown,
+  Gift,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type Status = 'idle' | 'parsing' | 'done' | 'error';
 
+interface TrialStatus {
+  isAdmin: boolean;
+  isPremium: boolean;
+  remainingTrials: number;
+  trialLimit: number;
+  canUseLLM: boolean;
+}
+
 export function ImportPlan() {
   const addTemplate = useTrainingStore((s) => s.addTemplate);
   const setActiveTemplate = useTrainingStore((s) => s.setActiveTemplate);
-  const settings = useSettingsStore((s) => s.settings);
 
   const [rawText, setRawText] = useState<string>('');
   const [status, setStatus] = useState<Status>('idle');
@@ -32,8 +41,21 @@ export function ImportPlan() {
   const [warnings, setWarnings] = useState<ParseWarning[]>([]);
   const [error, setError] = useState<string>('');
   const [templateName, setTemplateName] = useState<string>('');
+  const [trialStatus, setTrialStatus] = useState<TrialStatus | null>(null);
+  const [trialUpdated, setTrialUpdated] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    loadTrialStatus();
+  }, [trialUpdated]);
+
+  const loadTrialStatus = async () => {
+    const res = await api.get<TrialStatus>('/llm-proxy/trial-status');
+    if (res.data) {
+      setTrialStatus(res.data);
+    }
+  };
 
   const handleFile = async (file: File) => {
     try {
@@ -66,6 +88,13 @@ export function ImportPlan() {
       setStatus('error');
       return;
     }
+
+    if (parsingMode === 'llm' && trialStatus && !trialStatus.canUseLLM) {
+      setError('试用次数已用完，请升级为会员继续使用智能解析功能');
+      setStatus('error');
+      return;
+    }
+
     setStatus('parsing');
     setError('');
     setWarnings([]);
@@ -73,16 +102,17 @@ export function ImportPlan() {
       const detectedTitle = extractTitle(rawText);
       const effectiveName = templateName || detectedTitle || '导入的训练计划';
       if (parsingMode === 'llm') {
-        if (settings.llm.provider === 'none' || !settings.llm.endpoint || !settings.llm.apiKey) {
-          throw new Error('请先在"设置"页配置 LLM 服务');
+        const res = await api.post<{
+          success: boolean;
+          data: { drills: DrillInput[]; warnings: string[] };
+          remainingTrials: number;
+        }>('/llm-proxy/parse', { source: rawText });
+        if (!res.data || !res.data.success) {
+          throw new Error(res.error || '解析失败');
         }
-        const res = await parseWithLLM(rawText, {
-          endpoint: settings.llm.endpoint,
-          apiKey: settings.llm.apiKey,
-          model: settings.llm.model || 'gpt-4o-mini',
-        });
-        setDrills(res.drills);
-        setWarnings(res.warnings);
+        setDrills(res.data.data.drills);
+        setWarnings(res.data.data.warnings);
+        setTrialUpdated((prev) => !prev);
       } else {
         const res = parseMarkdownDocument(rawText, effectiveName);
         const inputs: DrillInput[] = res.template.drills.map((d) => ({
@@ -150,6 +180,8 @@ export function ImportPlan() {
     setStatus('idle');
   };
 
+  const canUseLLM = trialStatus?.canUseLLM ?? false;
+
   return (
     <div className="mx-auto w-full max-w-2xl pb-28">
       <div className="px-4 pt-6">
@@ -160,7 +192,47 @@ export function ImportPlan() {
       </div>
 
       <div className="mt-4 space-y-4 px-4">
-        {/* Step 1: input */}
+        {trialStatus && parsingMode === 'llm' && (
+          <div
+            className={cn(
+              'rounded-xl p-3 text-xs',
+              trialStatus.isAdmin || trialStatus.isPremium
+                ? 'border border-theme-accent/30 bg-theme-accent-light'
+                : trialStatus.remainingTrials > 0
+                  ? 'border border-theme-warning/30 bg-theme-warning/5'
+                  : 'border border-theme-danger/30 bg-theme-danger/10'
+            )}
+          >
+            <div className="flex items-center gap-2">
+              {trialStatus.isAdmin || trialStatus.isPremium ? (
+                <Crown className="h-4 w-4 text-theme-accent" />
+              ) : trialStatus.remainingTrials > 0 ? (
+                <Gift className="h-4 w-4 text-theme-warning" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-theme-danger" />
+              )}
+              <div>
+                {trialStatus.isAdmin || trialStatus.isPremium ? (
+                  <span className="text-theme-accent font-medium">会员专属</span>
+                ) : trialStatus.remainingTrials > 0 ? (
+                  <span className="text-theme-warning font-medium">
+                    免费试用中：还剩 {trialStatus.remainingTrials} 次（共 {trialStatus.trialLimit} 次）
+                  </span>
+                ) : (
+                  <span className="text-theme-danger font-medium">试用次数已用完</span>
+                )}
+                <div className={cn('mt-0.5', trialStatus.isAdmin || trialStatus.isPremium ? 'text-theme-text-secondary' : trialStatus.remainingTrials > 0 ? 'text-theme-text-muted' : 'text-theme-text-secondary')}>
+                  {trialStatus.isAdmin || trialStatus.isPremium
+                    ? '智能解析功能无限制使用'
+                    : trialStatus.remainingTrials > 0
+                      ? '每次使用消耗一次试用机会'
+                      : '升级为会员即可继续使用智能解析功能'}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="rounded-2xl border border-theme-border bg-theme-bg-card-light p-4">
           <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-theme-text-muted">
             <FileText className="h-3 w-3" />
@@ -213,7 +285,6 @@ export function ImportPlan() {
           />
         </div>
 
-        {/* Step 2: parse */}
         <div className="rounded-2xl border border-theme-border bg-theme-bg-card-light p-4">
           <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-theme-text-muted">
             <Wand2 className="h-3 w-3" />
@@ -236,22 +307,25 @@ export function ImportPlan() {
             </button>
             <button
               onClick={() => setParsingMode('llm')}
+              disabled={!canUseLLM}
               className={cn(
                 'flex-1 rounded-lg border px-3 py-2 text-sm transition-colors',
                 parsingMode === 'llm'
                   ? 'border-theme-accent bg-theme-accent text-white'
-                  : 'border-theme-border bg-theme-bg-card text-theme-text-secondary hover:border-theme-accent hover:bg-theme-accent-light'
+                  : !canUseLLM
+                    ? 'border-theme-border bg-theme-bg-card text-theme-text-muted cursor-not-allowed opacity-50'
+                    : 'border-theme-border bg-theme-bg-card text-theme-text-secondary hover:border-theme-accent hover:bg-theme-accent-light'
               )}
             >
-              LLM 解析（可选）
+              LLM 智能解析
               <div className={cn('mt-0.5 text-[11px] font-normal', parsingMode === 'llm' ? 'text-white/80' : 'text-theme-text-muted')}>
-                需在设置中配置 API Key，理解更自由的格式
+                {canUseLLM ? 'AI 智能理解，支持更自由的格式' : '试用次数已用完'}
               </div>
             </button>
           </div>
           <button
             onClick={() => void runParse()}
-            disabled={!rawText.trim() || status === 'parsing'}
+            disabled={!rawText.trim() || status === 'parsing' || (parsingMode === 'llm' && !canUseLLM)}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-theme-accent text-white px-4 py-2.5 text-sm font-medium hover:bg-theme-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Upload className="h-4 w-4" />
@@ -265,7 +339,6 @@ export function ImportPlan() {
           )}
         </div>
 
-        {/* Step 3: preview */}
         {status === 'done' && (
           <div className="rounded-2xl border border-theme-border bg-theme-bg-card-light p-4">
             <div className="mb-2 flex items-center justify-between">
@@ -405,7 +478,3 @@ export function ImportPlan() {
     </div>
   );
 }
-
-// reference uid so the import stays (it is used via drillInputsToTemplate inside llmParser.ts via cues but
-// we keep the uid import for clarity; suppress unused warning by referencing it once)
-void uid;

@@ -1,7 +1,7 @@
 {
-  "name": "足球集训执行助手",
-  "short_name": "足球集训",
-  "description": "暑期小朋友足球集训执行助手，像日程表一样每天展示训练项目，支持计时、语音播报、文档一键导入",
+  "name": "足Go棒训练助手",
+  "short_name": "足Go棒训练",
+  "description": "足Go棒训练助手，像日程表一样每天展示训练项目，支持计时、语音播报、文档一键导入",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

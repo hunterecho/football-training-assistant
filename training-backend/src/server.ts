@@ -9,6 +9,7 @@ import { recordRoutes } from './routes/records';
 import { userRoutes } from './routes/users';
 import { settingsRoutes } from './routes/settings';
 import { llmRoutes } from './routes/llm';
+import { llmProxyRoutes } from './routes/llmProxy';
 import { getSupabase } from './db/client';
 
 async function ensurePlanColumns() {
@@ -126,6 +127,7 @@ app.use('/api/records', recordRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/llm', llmRoutes);
+app.use('/api/llm-proxy', llmProxyRoutes);
 
 app.use(
   (

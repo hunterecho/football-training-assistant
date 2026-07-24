@@ -12,19 +12,33 @@ router.post('/mock', async (req, res) => {
       return;
     }
     const cleanName = nickname.trim();
+    const isAdmin = cleanName === '酒歌爸爸';
     const existing = await dbSelect('users', 'id', cleanName);
-    const user =
-      (existing[0] as any) ??
-      (await dbUpsertUser({
+    let user: any;
+    
+    if (existing[0]) {
+      user = existing[0];
+      if (isAdmin && user.role !== 'admin') {
+        user = await dbUpsertUser({
+          id: cleanName,
+          nickname: cleanName,
+          role: 'admin',
+          created_at: user.created_at,
+        });
+      }
+    } else {
+      user = await dbUpsertUser({
         id: cleanName,
         nickname: cleanName,
-        role: 'coach',
+        role: isAdmin ? 'admin' : 'coach',
         created_at: new Date().toISOString(),
-      }));
+      });
+    }
+    
     const token = signToken({
-      userId: (user as any).id ?? cleanName,
-      nickname: (user as any).nickname ?? cleanName,
-      role: (user as any).role ?? 'coach',
+      userId: user.id ?? cleanName,
+      nickname: user.nickname ?? cleanName,
+      role: user.role ?? (isAdmin ? 'admin' : 'coach'),
     });
     res.json({ token, user });
   } catch (err) {

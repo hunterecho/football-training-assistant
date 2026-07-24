@@ -7,6 +7,7 @@ import { Plans } from '@/pages/Plans';
 import { TemplateManager } from '@/pages/TemplateManager';
 import { ImportPlan } from '@/pages/ImportPlan';
 import { Settings } from '@/pages/Settings';
+import { AdminSettings } from '@/pages/AdminSettings';
 import { Login } from '@/pages/Login';
 import { ShareDetail } from '@/pages/ShareDetail';
 
@@ -69,6 +70,7 @@ function AppContent() {
           <Route path="/templates" element={<RequireAuth><TemplateManager /></RequireAuth>} />
           <Route path="/import" element={<RequireAuth><ImportPlan /></RequireAuth>} />
           <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
+          <Route path="/youyouyoujianchuiyan-settings" element={<RequireAuth><AdminSettings /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
