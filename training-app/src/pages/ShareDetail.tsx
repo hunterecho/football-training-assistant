@@ -108,7 +108,7 @@ export function ShareDetail() {
   const logout = useAuthStore((s) => s.logout);
   const resetSession = useTrainingStore((s) => s.resetSession);
   
-  const { enqueue, stop, clear, speaking, resume, pause } = useSpeech({ enabled: speechEnabled });
+  const { enqueue, stop, clear, speaking, resume, pause, useFallback } = useSpeech({ enabled: speechEnabled });
 
   const firedCueKeysRef = useRef<Set<string>>(new Set());
   const firedMinuteKeysRef = useRef<Set<string>>(new Set());
@@ -772,6 +772,12 @@ export function ShareDetail() {
                         {sessionDrills.length} 个环节
                       </div>
                     )}
+                    {useFallback && speechEnabled && (
+                      <div className="mt-4 flex items-center justify-center gap-2 text-xs text-amber-600 bg-amber-50 rounded-lg py-2 px-3">
+                        <span>🔔</span>
+                        <span>提示音模式（点击开始后会有提示音和振动）</span>
+                      </div>
+                    )}
                   </div>
 
                   <button
@@ -871,14 +877,17 @@ export function ShareDetail() {
                     <button
                       onClick={() => setSpeechEnabled(!speechEnabled)}
                       className={cn(
-                        'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors',
+                        'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors relative',
                         speechEnabled
                           ? 'bg-theme-accent/10 text-theme-accent'
                           : 'bg-theme-bg-card text-theme-text-muted'
                       )}
                     >
                       {speechEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-                      {speechEnabled ? '语音播报' : '已静音'}
+                      {speechEnabled ? (useFallback ? '提示音' : '语音播报') : '已静音'}
+                      {speechEnabled && useFallback && (
+                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-500 rounded-full" />
+                      )}
                     </button>
                     <button
                       onClick={() => setShowCancelConfirm(true)}
@@ -986,14 +995,17 @@ export function ShareDetail() {
                     <button
                       onClick={() => setSpeechEnabled(!speechEnabled)}
                       className={cn(
-                        'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors',
+                        'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors relative',
                         speechEnabled
                           ? 'bg-theme-accent/10 text-theme-accent'
                           : 'bg-theme-bg-card text-theme-text-muted'
                       )}
                     >
                       {speechEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-                      {speechEnabled ? '语音播报' : '已静音'}
+                      {speechEnabled ? (useFallback ? '提示音' : '语音播报') : '已静音'}
+                      {speechEnabled && useFallback && (
+                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-500 rounded-full" />
+                      )}
                     </button>
                     <button
                       onClick={resetCurrentDrill}

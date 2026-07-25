@@ -344,6 +344,12 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
           {template?.description && (
             <p className="mt-2 text-xs text-theme-text-muted">{template.description}</p>
           )}
+          {speech.useFallback && settings.speechEnabled && (
+            <div className="mt-4 flex items-center justify-center gap-2 text-xs text-amber-600 bg-amber-50 rounded-lg py-2 px-3">
+              <span>🔔</span>
+              <span>提示音模式（点击开始后会有提示音和振动）</span>
+            </div>
+          )}
         </div>
 
         <div className="w-full max-w-sm">
@@ -465,10 +471,20 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
           </div>
           <button
             onClick={() => setMuted((m) => !m)}
-            className="rounded-lg bg-theme-bg-card p-2 text-theme-text-secondary hover:bg-theme-bg-card"
+            className="rounded-lg bg-theme-bg-card p-2 text-theme-text-secondary hover:bg-theme-bg-card relative"
             aria-label="静音切换"
+            title={effectiveSpeechEnabled ? (speech.useFallback ? '提示音模式' : '语音播报') : '已静音'}
           >
-            {effectiveSpeechEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            {effectiveSpeechEnabled ? (
+              <>
+                <Volume2 className="h-4 w-4" />
+                {speech.useFallback && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-500 rounded-full" />
+                )}
+              </>
+            ) : (
+              <VolumeX className="h-4 w-4" />
+            )}
           </button>
         </div>
 
@@ -563,12 +579,17 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
           onClick={() => {
             setMuted((m) => !m);
           }}
-          className="rounded-lg bg-theme-bg-card p-2 text-theme-text-secondary hover:bg-theme-bg-card"
+          className="rounded-lg bg-theme-bg-card p-2 text-theme-text-secondary hover:bg-theme-bg-card relative"
           aria-label="静音切换"
-          title={effectiveSpeechEnabled ? '静音' : '取消静音'}
+          title={effectiveSpeechEnabled ? (speech.useFallback ? '提示音模式' : '语音播报') : '已静音'}
         >
           {effectiveSpeechEnabled ? (
-            <Volume2 className="h-4 w-4" />
+            <>
+              <Volume2 className="h-4 w-4" />
+              {speech.useFallback && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-500 rounded-full" />
+              )}
+            </>
           ) : (
             <VolumeX className="h-4 w-4" />
           )}

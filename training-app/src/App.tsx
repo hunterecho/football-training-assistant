@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavig
 import { useEffect } from 'react';
 import { BottomNav } from '@/components/Layout/BottomNav';
 import { FloatingSession } from '@/components/Layout/FloatingSession';
+import { WechatFloatingGuide } from '@/components/WechatFloatingGuide';
 import { TodayPlan } from '@/pages/TodayPlan';
 import { Plans } from '@/pages/Plans';
 import { TemplateManager } from '@/pages/TemplateManager';
@@ -14,6 +15,7 @@ import { ShareDetail } from '@/pages/ShareDetail';
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTrainingStore } from '@/store/trainingStore';
+import { unlockAudio } from '@/utils/wechat';
 
 const ROUTER_BASENAME = import.meta.env.VITE_DEPLOY_TARGET === 'gh-pages' ? '/football-training-assistant' : '/';
 
@@ -83,10 +85,15 @@ function AppContent() {
 function App() {
   const settings = useSettingsStore((s) => s.settings);
 
+  useEffect(() => {
+    unlockAudio();
+  }, []);
+
   return (
     <div className="min-h-screen bg-theme-bg text-theme-text">
       <Router basename={ROUTER_BASENAME}>
         <AppContent />
+        <WechatFloatingGuide />
       </Router>
       <audio id="audio-context-bootstrap" className="hidden" aria-hidden />
       <span data-settings-ready={String(settings.speechEnabled)} className="hidden" aria-hidden />
