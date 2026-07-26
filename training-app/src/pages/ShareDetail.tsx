@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { formatDuration, formatTime, formatDurationChinese } from '@/utils/duration';
 import { useSpeech } from '@/hooks/useSpeech';
+import { useTtsManifest } from '@/hooks/useTtsManifest';
 import { useAuthStore } from '@/store/authStore';
 import { useTrainingStore } from '@/store/trainingStore';
 import type { Template, TrainingPlan, SessionState, TrainingRecord, CueTrigger, RecordStatus } from '@/types';
@@ -108,7 +109,16 @@ export function ShareDetail() {
   const logout = useAuthStore((s) => s.logout);
   const resetSession = useTrainingStore((s) => s.resetSession);
   
-  const { enqueue, stop, clear, speaking, resume, pause, useFallback } = useSpeech({ enabled: speechEnabled });
+  const speech = useSpeech({ enabled: speechEnabled });
+  const { enqueue, stop, clear, speaking, resume, pause, useFallback } = speech;
+
+  // 预生成 TTS 音频（云希男声）
+  useTtsManifest({
+    speech,
+    planId: plan?.id,
+    drills: template?.drills,
+    enabled: speechEnabled,
+  });
 
   const firedCueKeysRef = useRef<Set<string>>(new Set());
   const firedMinuteKeysRef = useRef<Set<string>>(new Set());

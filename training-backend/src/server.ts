@@ -10,7 +10,9 @@ import { userRoutes } from './routes/users';
 import { settingsRoutes } from './routes/settings';
 import { llmRoutes } from './routes/llm';
 import { llmProxyRoutes } from './routes/llmProxy';
+import { ttsRoutes } from './routes/tts';
 import { getSupabase } from './db/client';
+import { ensureTtsBucket } from './services/ttsService';
 
 async function ensurePlanColumns() {
   if (!isSupabaseConfigured()) return;
@@ -85,6 +87,41 @@ async function ensurePlanColumns() {
       console.warn('[schema] Failed to add rest_duration column:', e);
     }
   }
+
+  // 确保 audio_manifest 列存在
+  try {
+    await sb.from('templates').select('audio_manifest').limit(1);
+    console.log('[schema] templates.audio_manifest column exists');
+  } catch {
+    console.log('[schema] Adding audio_manifest columns...');
+    try {
+      const url = `${config.supabaseUrl}/rest/v1/rpc/execute_sql`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.supabaseServiceKey}`,
+          'apikey': config.supabaseServiceKey
+        },
+        body: JSON.stringify({
+          sql: `
+            alter table if exists public.templates
+              add column if not exists audio_manifest jsonb default '{}';
+            alter table if exists public.plans
+              add column if not exists audio_manifest jsonb default '{}';
+          `
+        })
+      });
+      if (response.ok) {
+        console.log('[schema] audio_manifest columns added successfully');
+      } else {
+        const data = await response.json();
+        console.warn('[schema] Failed to add audio_manifest columns:', data);
+      }
+    } catch (e) {
+      console.warn('[schema] Failed to add audio_manifest columns:', e);
+    }
+  }
 }
 
 const app = express();
@@ -128,6 +165,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/llm', llmRoutes);
 app.use('/api/llm-proxy', llmProxyRoutes);
+app.use('/api/tts', ttsRoutes);
 
 app.use(
   (
@@ -141,7 +179,7 @@ app.use(
   }
 );
 
-ensurePlanColumns().then(() => {
+Promise.all([ensurePlanColumns(), ensureTtsBucket()]).then(() => {
   app.listen(config.port, () => {
     console.log(`[backend] listening on http://localhost:${config.port}`);
     console.log(

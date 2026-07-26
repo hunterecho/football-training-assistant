@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Template, SessionState, SessionStatus, Cue, TrainingRecord, TrainingPlan, RecordStatus, PlanStatus, Drill } from '@/types';
+import type { Template, SessionState, SessionStatus, Cue, TrainingRecord, TrainingPlan, RecordStatus, PlanStatus, Drill, AudioManifest } from '@/types';
 import { uid } from '@/utils/duration';
 import { api } from '@/lib/api';
 import { useAuthStore } from './authStore';
@@ -18,6 +18,7 @@ type TrainingStore = {
   synced: boolean;
   sessionPanelOpen: boolean;
   selectedPlanId: string | null;
+  audioManifest: AudioManifest | null;
 
   plansPage: number;
   plansPageSize: number;
@@ -71,6 +72,7 @@ type TrainingStore = {
   fetchSharePlan: (planId: string) => Promise<{ plan: TrainingPlan } | null>;
   sharePlanId: string | null;
   setSharePlanId: (id: string | null) => void;
+  setAudioManifest: (m: AudioManifest | null) => void;
 };
 
 const initialSession: SessionState = {
@@ -169,6 +171,7 @@ export const useTrainingStore = create<TrainingStore>()(
       sessionPanelOpen: false,
       selectedPlanId: null,
       sharePlanId: null,
+      audioManifest: null,
       plansPage: 1,
       plansPageSize: 20,
       plansTotal: 0,
@@ -178,6 +181,7 @@ export const useTrainingStore = create<TrainingStore>()(
 
       setTemplates: (t) => set({ templates: t }),
       setSharePlanId: (id) => set({ sharePlanId: id }),
+      setAudioManifest: (m) => set({ audioManifest: m }),
       addTemplate: async (t) => {
         const tempId = t.id;
         set((s) => ({ templates: [...s.templates, t] }));

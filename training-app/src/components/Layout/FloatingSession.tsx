@@ -55,6 +55,7 @@ export function FloatingSession() {
 
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.update);
+  const audioManifest = useTrainingStore((s) => s.audioManifest);
   const [onlyTimerMode, setOnlyTimerMode] = useState(() => {
     const saved = localStorage.getItem('training_onlyTimerMode');
     return saved ? JSON.parse(saved) : false;
@@ -67,6 +68,11 @@ export function FloatingSession() {
     voiceIndex: settings.speechVoiceIndex,
   });
   const { beep } = useBeep();
+
+  // 从 store 同步预生成的音频清单到 speech
+  useEffect(() => {
+    speech.setAudioManifest(audioManifest);
+  }, [audioManifest, speech]);
 
   const sessionDrills = useMemo((): Drill[] => {
     if (activeRecordId) {

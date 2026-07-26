@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useSpeech } from '@/hooks/useSpeech';
 import { useBeep } from '@/hooks/useBeep';
 import { useWakeLock } from '@/hooks/useWakeLock';
+import { useTtsManifest } from '@/hooks/useTtsManifest';
 import { formatDuration } from '@/utils/duration';
 import {
   Pause,
@@ -68,6 +69,14 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
     return templates.find((t) => t.id === activeId) ?? null;
   }, [templates, activeId, activeRecordId, records]);
   const drill = template?.drills[session.drillIndex] ?? null;
+
+  // 预生成 TTS 音频（云希男声）
+  useTtsManifest({
+    speech,
+    templateId: template?.id,
+    drills: template?.drills,
+    enabled: effectiveSpeechEnabled,
+  });
 
   // When muted changes, sync with speech engine.
   useEffect(() => {

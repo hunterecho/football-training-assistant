@@ -104,6 +104,19 @@ export type Settings = {
   };
 };
 
+export type AudioManifestEntry = {
+  text: string;
+  url: string;
+  hash: string;
+};
+
+export type AudioManifest = {
+  voice: string;
+  rate: string;
+  generatedAt: string;
+  audioMap: Record<string, AudioManifestEntry>;
+};
+
 export type ImportWarnings = string[];
 
 export type DrillInput = {

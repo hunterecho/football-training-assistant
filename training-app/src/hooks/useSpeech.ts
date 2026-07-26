@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isWechatBrowser, isWechatIOS, unlockAudio } from '@/utils/wechat';
+import { playAudioUrl, stopAllAudio, preloadAudio } from '@/utils/audioPlayer';
+import type { AudioManifest } from '@/types';
 
 type UseSpeechOptions = {
   enabled: boolean;
@@ -28,6 +30,10 @@ export function useSpeech(options: UseSpeechOptions) {
   const isProcessingRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const fallbackBeepRef = useRef(false);
+  // 预生成音频映射: text -> url
+  const audioMapRef = useRef<Map<string, string>>(new Map());
+  // 是否正在播放音频文件
+  const playingAudioRef = useRef(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [lastError, setLastError] = useState<string>('');
   const [speaking, setSpeaking] = useState(false);
@@ -258,10 +264,44 @@ export function useSpeech(options: UseSpeechOptions) {
     }
   }, [supported, pickVoice]);
 
+  // 设置预生成的音频清单
+  const setAudioManifest = useCallback((manifest: AudioManifest | null) => {
+    const map = new Map<string, string>();
+    if (manifest?.audioMap) {
+      for (const [text, entry] of Object.entries(manifest.audioMap)) {
+        map.set(text, entry.url);
+        // 预加载音频文件
+        preloadAudio(entry.url);
+      }
+    }
+    audioMapRef.current = map;
+  }, []);
+
   const enqueue = useCallback(
     (text: string, priority: 'high' | 'normal' = 'normal') => {
       if (!enabledRef.current) return;
       if (!text) return;
+
+      // 最高优先级：有预生成的音频文件
+      const audioUrl = audioMapRef.current.get(text);
+      if (audioUrl) {
+        if (priority === 'high') {
+          // 取消当前所有播放
+          stopAllAudio();
+          if (supported) {
+            try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+          }
+          queueRef.current = [];
+          isProcessingRef.current = false;
+        }
+        playingAudioRef.current = true;
+        setSpeaking(true);
+        playAudioUrl(audioUrl, volumeRef.current).finally(() => {
+          playingAudioRef.current = false;
+          setSpeaking(false);
+        });
+        return;
+      }
 
       if (fallbackBeepRef.current || !supported) {
         const lower = text.toLowerCase();
@@ -315,6 +355,8 @@ export function useSpeech(options: UseSpeechOptions) {
     if (supported) {
       try { window.speechSynthesis.cancel(); } catch { /* noop */ }
     }
+    stopAllAudio();
+    playingAudioRef.current = false;
     speakingRef.current = false;
     setSpeaking(false);
     isProcessingRef.current = false;
@@ -325,6 +367,8 @@ export function useSpeech(options: UseSpeechOptions) {
     if (supported) {
       try { window.speechSynthesis.cancel(); } catch { /* noop */ }
     }
+    stopAllAudio();
+    playingAudioRef.current = false;
     speakingRef.current = false;
     setSpeaking(false);
     isProcessingRef.current = false;
@@ -352,5 +396,5 @@ export function useSpeech(options: UseSpeechOptions) {
     isWechat: isWechatBrowser(),
   };
 
-  return { speak, enqueue, clear, pause, resume, stop, speaking, supported, debug, useFallback, playFallbackBeep, vibrate };
+  return { speak, enqueue, clear, pause, resume, stop, speaking, supported, debug, useFallback, playFallbackBeep, vibrate, setAudioManifest };
 }
