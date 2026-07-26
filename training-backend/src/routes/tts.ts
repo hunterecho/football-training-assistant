@@ -42,12 +42,14 @@ router.post('/pregenerate', async (req, res) => {
     let storageTable: 'templates' | 'plans' | null = null;
     let storageId: string | null = null;
 
+    let restDuration = 0;
+
     if (templateId) {
       const sb = getAdminSupabase();
       if (sb) {
         const { data, error } = await sb
           .from('templates')
-          .select('id, user_id, drills, audio_manifest')
+          .select('id, user_id, drills, audio_manifest, rest_duration')
           .eq('id', templateId)
           .single();
         if (error || !data) {
@@ -55,13 +57,13 @@ router.post('/pregenerate', async (req, res) => {
           return;
         }
         drillData = (data.drills as any[]) ?? [];
+        restDuration = (data.rest_duration as number) ?? 0;
         storageTable = 'templates';
         storageId = data.id;
 
-        // 如果已有 manifest 且音色一致，直接返回
         const existing = data.audio_manifest as AudioManifest | null;
         if (existing && existing.voice === effectiveVoice && existing.audioMap) {
-          const texts = extractTextsFromDrills(drillData);
+          const texts = extractTextsFromDrills(drillData, restDuration);
           const allCovered = texts.every((t) => existing.audioMap[t]);
           if (allCovered) {
             res.json({ success: true, manifest: existing, cached: true });
@@ -87,7 +89,7 @@ router.post('/pregenerate', async (req, res) => {
 
         const existing = data.audio_manifest as AudioManifest | null;
         if (existing && existing.voice === effectiveVoice && existing.audioMap) {
-          const texts = extractTextsFromDrills(drillData);
+          const texts = extractTextsFromDrills(drillData, restDuration);
           const allCovered = texts.every((t) => existing.audioMap[t]);
           if (allCovered) {
             res.json({ success: true, manifest: existing, cached: true });
@@ -97,6 +99,7 @@ router.post('/pregenerate', async (req, res) => {
       }
     } else if (drills) {
       drillData = drills;
+      restDuration = (req.body as any).restDuration ?? 0;
     } else {
       res.status(400).json({ error: 'templateId, planId or drills is required' });
       return;
@@ -108,7 +111,7 @@ router.post('/pregenerate', async (req, res) => {
     }
 
     // 提取所有需要生成的文本
-    const texts = extractTextsFromDrills(drillData);
+    const texts = extractTextsFromDrills(drillData, restDuration);
 
     if (texts.length === 0) {
       res.json({ success: true, manifest: { voice: effectiveVoice, rate: effectiveRate, generatedAt: new Date().toISOString(), audioMap: {} } });

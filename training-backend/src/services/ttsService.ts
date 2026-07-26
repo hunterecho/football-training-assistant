@@ -144,21 +144,39 @@ export async function generateAndUploadAudio(
   }
 }
 
+function formatDurationChinese(seconds: number): string {
+  if (seconds <= 0) return '0 秒';
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  if (m === 0) return `${s} 秒`;
+  if (s === 0) return `${m} 分钟`;
+  return `${m} 分 ${s} 秒`;
+}
+
 /**
  * 从模板/计划的 drills 中提取所有需要预生成的文本
+ * 包括：原始文本 + 前端实际播报的组合文本
  */
 export function extractTextsFromDrills(
   drills: Array<{
     title?: string;
+    duration?: number;
     summary?: string;
     cues?: Array<{ text?: string }>;
-  }>
+  }>,
+  restDuration: number = 0
 ): string[] {
   const texts: string[] = [];
 
   for (const drill of drills) {
     if (drill.title) {
       texts.push(drill.title);
+      const durationStr = drill.duration ? formatDurationChinese(drill.duration) : '';
+      texts.push(`现在开始 ${drill.title}，时长 ${durationStr}`);
+      texts.push(`${drill.title} 完成`);
+      if (restDuration > 0) {
+        texts.push(`${drill.title} 完成，休息 ${formatDurationChinese(restDuration)}`);
+      }
     }
     if (drill.summary) {
       texts.push(drill.summary);
@@ -172,9 +190,10 @@ export function extractTextsFromDrills(
     }
   }
 
-  // 固定话术
   texts.push('训练完成，大家辛苦了！');
   texts.push('还剩一分钟');
+  texts.push('休息结束');
+  texts.push('开始休息');
 
   return texts;
 }

@@ -6,7 +6,7 @@ import { useSpeech } from '@/hooks/useSpeech';
 import { useBeep } from '@/hooks/useBeep';
 import { useWakeLock } from '@/hooks/useWakeLock';
 import { useTtsManifest } from '@/hooks/useTtsManifest';
-import { formatDuration } from '@/utils/duration';
+import { formatDuration, formatDurationChinese } from '@/utils/duration';
 import {
   Pause,
   Play,
@@ -207,7 +207,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
 
     // Start of drill
     if (session.status === 'running' && session.remaining >= drill.duration - 0.05) {
-      const intro = `现在开始 ${drill.title}，时长 ${formatDuration(drill.duration)}`;
+      const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
       speech.enqueue(intro);
       beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
       drill.cues
@@ -302,7 +302,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
         beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
       } else {
         const next = template.drills[session.drillIndex + 1];
-        speech.enqueue(`${drill.title} 完成，休息 ${formatDuration(session.restDuration)}`);
+        speech.enqueue(`${drill.title} 完成，休息 ${formatDurationChinese(session.restDuration)}`);
         beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
         window.setTimeout(() => {
           speech.clear();
