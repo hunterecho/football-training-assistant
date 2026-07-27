@@ -42,14 +42,14 @@ router.post('/pregenerate', async (req, res) => {
     let storageTable: 'templates' | 'plans' | null = null;
     let storageId: string | null = null;
 
-    let restDuration = 0;
+    let restDuration = (req.body as any).restDuration ?? 0;
 
     if (templateId) {
       const sb = getAdminSupabase();
       if (sb) {
         const { data, error } = await sb
           .from('templates')
-          .select('id, user_id, drills, audio_manifest, rest_duration')
+          .select('id, user_id, drills, audio_manifest')
           .eq('id', templateId)
           .single();
         if (error || !data) {
@@ -57,7 +57,6 @@ router.post('/pregenerate', async (req, res) => {
           return;
         }
         drillData = (data.drills as any[]) ?? [];
-        restDuration = (data.rest_duration as number) ?? 0;
         storageTable = 'templates';
         storageId = data.id;
 
@@ -99,7 +98,6 @@ router.post('/pregenerate', async (req, res) => {
       }
     } else if (drills) {
       drillData = drills;
-      restDuration = (req.body as any).restDuration ?? 0;
     } else {
       res.status(400).json({ error: 'templateId, planId or drills is required' });
       return;

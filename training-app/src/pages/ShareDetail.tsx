@@ -117,6 +117,7 @@ export function ShareDetail() {
     speech,
     planId: plan?.id,
     drills: template?.drills,
+    restDuration: session.restDuration,
     enabled: speechEnabled,
   });
 

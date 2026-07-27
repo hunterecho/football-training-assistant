@@ -75,6 +75,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
     speech,
     templateId: template?.id,
     drills: template?.drills,
+    restDuration: session.restDuration,
     enabled: effectiveSpeechEnabled,
   });
 

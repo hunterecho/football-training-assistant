@@ -72,14 +72,17 @@ export async function generateAndUploadAudio(
     return null;
   }
 
+  // 构建 public URL（bucket 已设为 public）
+  const publicUrl = `${sb.storage.from(TTS_BUCKET).getPublicUrl(path).data.publicUrl}`;
+
   // 先检查是否已存在（去重）
   try {
-    const { data: existing } = await sb.storage
+    const { data: existingList } = await sb.storage
       .from(TTS_BUCKET)
-      .createSignedUrl(path, 60 * 60 * 24 * 365); // 1年有效期
-    if (existing?.signedUrl) {
+      .list(path.split('/')[0], { search: path.split('/')[1] });
+    if (existingList && existingList.length > 0) {
       console.log(`[tts] audio already exists: ${path}`);
-      return { url: existing.signedUrl, hash };
+      return { url: publicUrl, hash };
     }
   } catch {
     // 不存在，继续生成
@@ -126,18 +129,8 @@ export async function generateAndUploadAudio(
       return null;
     }
 
-    // 生成签名 URL（1年有效期）
-    const { data: signedUrlData, error: urlError } = await sb.storage
-      .from(TTS_BUCKET)
-      .createSignedUrl(path, 60 * 60 * 24 * 365);
-
-    if (urlError || !signedUrlData?.signedUrl) {
-      console.error('[tts] signed url failed:', urlError?.message);
-      return null;
-    }
-
     console.log(`[tts] generated: ${path} (${audioBuffer.length} bytes)`);
-    return { url: signedUrlData.signedUrl, hash };
+    return { url: publicUrl, hash };
   } catch (err) {
     console.error('[tts] storage error:', err);
     return null;
@@ -250,13 +243,27 @@ export async function ensureTtsBucket(): Promise<void> {
     const exists = buckets?.some((b) => b.name === TTS_BUCKET);
     if (!exists) {
       const { error } = await sb.storage.createBucket(TTS_BUCKET, {
-        public: false,
+        public: true,
         fileSizeLimit: '5MB',
       });
       if (error) {
         console.warn('[tts] create bucket failed:', error.message);
       } else {
-        console.log('[tts] bucket created:', TTS_BUCKET);
+        console.log('[tts] bucket created (public):', TTS_BUCKET);
+      }
+    } else {
+      // 确保已存在的 bucket 是 public
+      const bucket = buckets?.find((b) => b.name === TTS_BUCKET);
+      if (bucket && !bucket.public) {
+        const { error } = await sb.storage.updateBucket(TTS_BUCKET, {
+          public: true,
+          fileSizeLimit: '5MB',
+        });
+        if (error) {
+          console.warn('[tts] update bucket to public failed:', error.message);
+        } else {
+          console.log('[tts] bucket updated to public:', TTS_BUCKET);
+        }
       }
     }
   } catch (err) {

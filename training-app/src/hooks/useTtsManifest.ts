@@ -13,6 +13,7 @@ type UseTtsManifestOptions = {
   templateId?: string;
   planId?: string;
   drills?: Drill[];
+  restDuration?: number;
   enabled?: boolean;
 };
 
@@ -20,7 +21,7 @@ type UseTtsManifestOptions = {
  * 自动预生成 TTS 音频并设置到 speech 实例
  * 训练开始时调用后端预生成接口，完成后设置到 speech
  */
-export function useTtsManifest({ speech, templateId, planId, drills, enabled = true }: UseTtsManifestOptions) {
+export function useTtsManifest({ speech, templateId, planId, drills, restDuration = 0, enabled = true }: UseTtsManifestOptions) {
   const audioManifest = useTrainingStore((s) => s.audioManifest);
   const setAudioManifest = useTrainingStore((s) => s.setAudioManifest);
   const token = useAuthStore((s) => s.token);
@@ -46,6 +47,7 @@ export function useTtsManifest({ speech, templateId, planId, drills, enabled = t
     const body: Record<string, unknown> = {};
     if (templateId) body.templateId = templateId;
     if (planId) body.planId = planId;
+    body.restDuration = restDuration;
     if (drills && !templateId && !planId) {
       body.drills = drills.map((d) => ({
         title: d.title,
@@ -64,5 +66,5 @@ export function useTtsManifest({ speech, templateId, planId, drills, enabled = t
       .catch((err) => {
         console.warn('[tts] pregenerate failed:', err);
       });
-  }, [enabled, token, templateId, planId, drills, setAudioManifest]);
+  }, [enabled, token, templateId, planId, drills, restDuration, setAudioManifest]);
 }
