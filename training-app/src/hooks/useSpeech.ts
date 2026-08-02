@@ -378,14 +378,25 @@ export function useSpeech(options: UseSpeechOptions) {
     if (supported) {
       try { window.speechSynthesis.pause(); } catch { /* noop */ }
     }
+    // 暂停预生成音频
+    stopAllAudio();
+    playingAudioRef.current = false;
   }, [supported]);
 
   const resume = useCallback(() => {
     if (enabledRef.current && supported) {
       try { window.speechSynthesis.resume(); } catch { /* noop */ }
+      // 恢复后检查队列：如果 speechSynthesis 没在播放但队列有待播放项，继续处理
+      // 解决 Chrome 中 resume() 后队列卡住的问题
+      window.setTimeout(() => {
+        if (!enabledRef.current) return;
+        if (!window.speechSynthesis.speaking && !isProcessingRef.current && queueRef.current.length > 0) {
+          processQueue();
+        }
+      }, 200);
     }
     ensureAudioCtx();
-  }, [supported, ensureAudioCtx]);
+  }, [supported, ensureAudioCtx, processQueue]);
 
   const debug = {
     supported,
