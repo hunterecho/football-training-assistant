@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useThemeStore, themes, type ThemeConfig } from '@/store/themeStore';
 import { cn } from '@/lib/utils';
@@ -14,9 +15,16 @@ import {
   LogOut,
   UserCircle2,
   Check,
+  Bug,
+  Play,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import { useTrainingStore } from '@/store/trainingStore';
 import { useAuthStore } from '@/store/authStore';
+import { api } from '@/lib/api';
+import { isWechatBrowser } from '@/utils/wechat';
+import { playAudioUrl } from '@/utils/audioPlayer';
 import type { Template } from '@/types';
 
 export function Settings() {
@@ -29,6 +37,7 @@ export function Settings() {
   const resetSession = useTrainingStore((s) => s.resetSession);
   const currentTheme = useThemeStore((s) => s.currentTheme);
   const hasPremiumAccess = user?.role === 'admin' || user?.role === 'premium';
+  const [showDebug, setShowDebug] = useState(false);
 
   const exportData = () => {
     const data = {
@@ -207,6 +216,18 @@ export function Settings() {
         </section>
 
         <section className="theme-card">
+          <button
+            onClick={() => setShowDebug(!showDebug)}
+            className="flex w-full items-center gap-2 text-xs font-medium uppercase tracking-wider text-theme-text-muted"
+          >
+            <Bug className="h-3 w-3" />
+            语音调试 {showDebug ? '▾' : '▸'}
+          </button>
+
+          {showDebug && <TtsDebugPanel />}
+        </section>
+
+        <section className="theme-card">
           <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-theme-text-muted">
             <Wrench className="h-3 w-3" />
             数据管理
@@ -287,5 +308,173 @@ function Toggle({
         />
       </button>
     </label>
+  );
+}
+
+/**
+ * TTS 语音调试面板
+ * - 清除缓存（localStorage + sessionStorage + caches API）
+ * - 测试 TTS 预生成和音频播放
+ * - 显示环境信息和 audioMap 状态
+ */
+function TtsDebugPanel() {
+  const token = useAuthStore((s) => s.token);
+  const audioManifest = useTrainingStore((s) => s.audioManifest);
+  const setAudioManifest = useTrainingStore((s) => s.setAudioManifest);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string>('');
+  const [clearing, setClearing] = useState(false);
+  const [clearResult, setClearResult] = useState<string>('');
+
+  const isWechat = isWechatBrowser();
+  const audioMapSize = audioManifest?.audioMap ? Object.keys(audioManifest.audioMap).length : 0;
+  const manifestVoice = audioManifest?.voice ?? '无';
+
+  const handleClearCache = async () => {
+    setClearing(true);
+    setClearResult('清除中...');
+    try {
+      // 1. 清除 localStorage 中与训练/audio相关的数据
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.includes('coach-train') || key.includes('audio') || key.includes('tts'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+
+      // 2. 清除 sessionStorage
+      sessionStorage.clear();
+
+      // 3. 清除 Cache API（Service Worker 缓存）
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        await Promise.all(cacheNames.map((name) => caches.delete(name)));
+      }
+
+      // 4. 清除 audioManifest
+      setAudioManifest(null);
+
+      const msg = `已清除 ${keysToRemove.length} 项 localStorage + sessionStorage + caches`;
+      setClearResult(msg);
+      setTestResult('');
+    } catch (err) {
+      setClearResult(`清除失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const handleTestTts = async () => {
+    setTesting(true);
+    setTestResult('测试中...');
+    try {
+      if (!token) {
+        setTestResult('未登录，无法测试');
+        return;
+      }
+
+      // 调用预生成 API
+      const res = await api.post<{ success: boolean; manifest: typeof audioManifest; cached?: boolean }>('/tts/pregenerate', {
+        drills: [{ title: '测试环节', duration: 60, summary: '测试摘要', cues: [{ text: '测试注意要点' }] }],
+        restDuration: 30,
+      });
+
+      if (res.error) {
+        setTestResult(`API错误: ${res.error}`);
+        return;
+      }
+
+      if (!res.data?.manifest) {
+        setTestResult('API返回空 manifest');
+        return;
+      }
+
+      const manifest = res.data.manifest;
+      const mapSize = manifest.audioMap ? Object.keys(manifest.audioMap).length : 0;
+      setAudioManifest(manifest);
+
+      // 尝试播放第一条音频
+      const firstEntry = manifest.audioMap ? Object.values(manifest.audioMap)[0] : null;
+      if (firstEntry) {
+        setTestResult(`成功! voice=${manifest.voice} 音频数=${mapSize}\n正在播放: "${firstEntry.text}"`);
+        try {
+          await playAudioUrl(firstEntry.url, 1);
+          setTestResult((prev) => prev + '\n播放完成 ✓');
+        } catch {
+          setTestResult((prev) => prev + '\n播放失败 (可能需要用户交互)');
+        }
+      } else {
+        setTestResult(`成功但 audioMap 为空 voice=${manifest.voice}`);
+      }
+    } catch (err) {
+      setTestResult(`测试失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 space-y-3 rounded-xl border border-theme-border bg-theme-bg-card-subtle p-3">
+      {/* 环境信息 */}
+      <div className="space-y-1 text-xs text-theme-text-muted">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-theme-text">环境:</span>
+          <span>{isWechat ? '微信' : '浏览器'}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-theme-text">manifest:</span>
+          <span>{audioManifest ? `已加载 (${audioMapSize} 条音频, ${manifestVoice})` : '未加载'}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-theme-text">token:</span>
+          <span>{token ? `已登录 (${token.length} 字符)` : '未登录'}</span>
+        </div>
+      </div>
+
+      {/* 清除缓存按钮 */}
+      <div className="space-y-1">
+        <button
+          onClick={handleClearCache}
+          disabled={clearing}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-theme-warning/30 bg-theme-warning/10 px-3 py-2 text-sm text-theme-warning hover:bg-theme-warning/20 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 ${clearing ? 'animate-spin' : ''}`} />
+          {clearing ? '清除中...' : '清除缓存（localStorage + caches）'}
+        </button>
+        {clearResult && (
+          <div className="rounded bg-theme-bg-card p-2 text-xs text-theme-text-muted">
+            {clearResult}
+          </div>
+        )}
+        <p className="text-[10px] text-theme-text-muted">
+          清除后请刷新页面（微信内可关闭页面重新打开）
+        </p>
+      </div>
+
+      {/* TTS 测试按钮 */}
+      <div className="space-y-1">
+        <button
+          onClick={handleTestTts}
+          disabled={testing || !token}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-theme-accent/30 bg-theme-accent/10 px-3 py-2 text-sm text-theme-accent hover:bg-theme-accent/20 disabled:opacity-50"
+        >
+          <Play className="h-4 w-4" />
+          {testing ? '测试中...' : '测试 TTS 语音生成与播放'}
+        </button>
+        {testResult && (
+          <div className="whitespace-pre-wrap rounded bg-theme-bg-card p-2 text-xs text-theme-text-muted">
+            {testResult}
+          </div>
+        )}
+        {!token && (
+          <div className="flex items-center gap-1 text-[10px] text-theme-warning">
+            <AlertCircle className="h-3 w-3" />
+            需要登录才能测试
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
