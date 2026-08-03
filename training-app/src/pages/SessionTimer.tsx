@@ -71,13 +71,15 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   const drill = template?.drills[session.drillIndex] ?? null;
 
   // 预生成 TTS 音频（云希男声）
-  useTtsManifest({
+  const { manifestReady, manifestError } = useTtsManifest({
     speech,
     templateId: template?.id,
     drills: template?.drills,
     restDuration: session.restDuration,
     enabled: effectiveSpeechEnabled,
   });
+  const manifestReadyRef = useRef(false);
+  manifestReadyRef.current = manifestReady;
 
   // When muted changes, sync with speech engine.
   useEffect(() => {
@@ -116,6 +118,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   const firedCueKeysRef = useRef<Set<string>>(new Set());
   const firedMinuteKeysRef = useRef<Set<string>>(new Set());
   const firedOneMinLeftRef = useRef<boolean>(false);
+  const firedIntroRef = useRef<boolean>(false);
   const startedDrillRef = useRef<string>('');
   const prevDrillIndexRef = useRef<number>(session.drillIndex);
   const recordIdRef = useRef<string | null>(null);
@@ -202,12 +205,38 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
       firedCueKeysRef.current = new Set();
       firedMinuteKeysRef.current = new Set();
       firedOneMinLeftRef.current = false;
+      firedIntroRef.current = false;
       lastEndedRef.current = false;
       lastFiveSecRef.current = 0;
     }
 
-    // Start of drill
-    if (session.status === 'running' && session.remaining >= drill.duration - 0.05) {
+    // Start of drill — 等待 manifest 加载完成后才播报 intro
+    // 这样预生成的 MP3 才能在 audioMap 中找到
+    if (session.status === 'running' && session.remaining >= drill.duration - 0.05 && !firedIntroRef.current) {
+      // 如果语音启用但 manifest 还没加载好，延迟播报（最多等 5 秒）
+      if (effectiveSpeechEnabled && !manifestReadyRef.current && !manifestError) {
+        const timer = window.setTimeout(() => {
+          // 5 秒后无论 manifest 是否加载都播报（避免无限等待）
+          if (!firedIntroRef.current) {
+            firedIntroRef.current = true;
+            const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
+            speech.enqueue(intro);
+            beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
+            drill.cues
+              .filter((c) => c.trigger === 'start')
+              .forEach((c) => {
+                const key = `start:${c.id}`;
+                if (!firedCueKeysRef.current.has(key)) {
+                  firedCueKeysRef.current.add(key);
+                  speech.enqueue(c.text);
+                }
+              });
+          }
+        }, 5000);
+        return () => window.clearTimeout(timer);
+      }
+
+      firedIntroRef.current = true;
       const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
       speech.enqueue(intro);
       beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
@@ -311,7 +340,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
         }, 1800);
       }
     }
-  }, [session, drill, template, speech, beep, settings.soundEnabled]);
+  }, [session, drill, template, speech, beep, settings.soundEnabled, manifestReady, manifestError, effectiveSpeechEnabled]);
 
   // Remove auto-start — training only begins when user clicks the start button.
   // Existing session state (paused / finished) is restored as-is.
