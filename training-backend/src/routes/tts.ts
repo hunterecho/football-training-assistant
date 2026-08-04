@@ -7,6 +7,7 @@ import {
   DEFAULT_VOICE,
   DEFAULT_RATE,
   type AudioManifest,
+  type PregenerateErrorEntry,
 } from '../services/ttsService';
 
 const router = Router();
@@ -117,7 +118,7 @@ router.post('/pregenerate', async (req, res) => {
     }
 
     // 预生成音频
-    const manifest = await pregenerateAudios(texts, userId, {
+    const preResult = await pregenerateAudios(texts, userId, {
       voice: effectiveVoice,
       rate: effectiveRate,
     });
@@ -128,12 +129,19 @@ router.post('/pregenerate', async (req, res) => {
       if (sb) {
         await sb
           .from(storageTable)
-          .update({ audio_manifest: manifest })
+          .update({ audio_manifest: preResult.manifest })
           .eq('id', storageId);
       }
     }
 
-    res.json({ success: true, manifest, cached: false });
+    res.json({
+      success: true,
+      manifest: preResult.manifest,
+      cached: false,
+      totalTexts: preResult.totalTexts,
+      successCount: preResult.successCount,
+      errors: preResult.errors as PregenerateErrorEntry[],
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[tts] pregenerate error:', err);
@@ -166,8 +174,8 @@ router.post('/generate', async (req, res) => {
       rate: rate ?? DEFAULT_RATE,
     });
 
-    if (!result) {
-      res.status(500).json({ error: 'TTS generation failed' });
+    if (!result.success) {
+      res.status(500).json({ error: result.error, stage: result.stage });
       return;
     }
 

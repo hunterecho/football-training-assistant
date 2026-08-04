@@ -317,12 +317,15 @@ function Toggle({
  * - 测试 TTS 预生成和音频播放
  * - 显示环境信息和 audioMap 状态
  */
+type PregenerateErrorEntry = { text: string; error: string; stage: string };
+
 function TtsDebugPanel() {
   const token = useAuthStore((s) => s.token);
   const audioManifest = useTrainingStore((s) => s.audioManifest);
   const setAudioManifest = useTrainingStore((s) => s.setAudioManifest);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string>('');
+  const [testErrors, setTestErrors] = useState<PregenerateErrorEntry[]>([]);
   const [clearing, setClearing] = useState(false);
   const [clearResult, setClearResult] = useState<string>('');
 
@@ -355,6 +358,7 @@ function TtsDebugPanel() {
 
       // 4. 清除 audioManifest
       setAudioManifest(null);
+      setTestErrors([]);
 
       const msg = `已清除 ${keysToRemove.length} 项 localStorage + sessionStorage + caches`;
       setClearResult(msg);
@@ -369,6 +373,7 @@ function TtsDebugPanel() {
   const handleTestTts = async () => {
     setTesting(true);
     setTestResult('测试中...');
+    setTestErrors([]);
     try {
       if (!token) {
         setTestResult('未登录，无法测试');
@@ -376,7 +381,14 @@ function TtsDebugPanel() {
       }
 
       // 调用预生成 API
-      const res = await api.post<{ success: boolean; manifest: typeof audioManifest; cached?: boolean }>('/tts/pregenerate', {
+      const res = await api.post<{
+        success: boolean;
+        manifest: typeof audioManifest;
+        cached?: boolean;
+        totalTexts?: number;
+        successCount?: number;
+        errors?: PregenerateErrorEntry[];
+      }>('/tts/pregenerate', {
         drills: [{ title: '测试环节', duration: 60, summary: '测试摘要', cues: [{ text: '测试注意要点' }] }],
         restDuration: 30,
       });
@@ -395,10 +407,19 @@ function TtsDebugPanel() {
       const mapSize = manifest.audioMap ? Object.keys(manifest.audioMap).length : 0;
       setAudioManifest(manifest);
 
+      const total = res.data.totalTexts ?? mapSize;
+      const okCount = res.data.successCount ?? mapSize;
+      const errs = res.data.errors ?? [];
+      if (errs.length > 0) {
+        setTestErrors(errs);
+      }
+
       // 尝试播放第一条音频
       const firstEntry = manifest.audioMap ? Object.values(manifest.audioMap)[0] : null;
       if (firstEntry) {
-        setTestResult(`成功! voice=${manifest.voice} 音频数=${mapSize}\n正在播放: "${firstEntry.text}"`);
+        setTestResult(
+          `成功! voice=${manifest.voice} 音频数=${mapSize}/${total} (成功${okCount}条${errs.length > 0 ? `,失败${errs.length}条` : ''})\n正在播放: "${firstEntry.text}"`
+        );
         try {
           await playAudioUrl(firstEntry.url, 1);
           setTestResult((prev) => prev + '\n播放完成 ✓');
@@ -406,7 +427,16 @@ function TtsDebugPanel() {
           setTestResult((prev) => prev + '\n播放失败 (可能需要用户交互)');
         }
       } else {
-        setTestResult(`成功但 audioMap 为空 voice=${manifest.voice}`);
+        const stageSummary: Record<string, number> = {};
+        errs.forEach((e) => {
+          stageSummary[e.stage] = (stageSummary[e.stage] ?? 0) + 1;
+        });
+        const stageStr = Object.entries(stageSummary)
+          .map(([s, n]) => `${s}:${n}`)
+          .join(', ');
+        setTestResult(
+          `API成功但 audioMap 为空 (${mapSize}/${total})\nvoice=${manifest.voice}\n失败${errs.length}条${stageStr ? ` (${stageStr})` : ''}\n请查看下方"详细错误列表"`
+        );
       }
     } catch (err) {
       setTestResult(`测试失败: ${err instanceof Error ? err.message : String(err)}`);
@@ -466,6 +496,30 @@ function TtsDebugPanel() {
         {testResult && (
           <div className="whitespace-pre-wrap rounded bg-theme-bg-card p-2 text-xs text-theme-text-muted">
             {testResult}
+          </div>
+        )}
+        {testErrors.length > 0 && (
+          <div className="space-y-1 rounded border border-theme-danger/30 bg-theme-danger/5 p-2">
+            <div className="text-[11px] font-semibold text-theme-danger">📋 详细错误列表 (前 10 条):</div>
+            <div className="max-h-48 space-y-1 overflow-y-auto">
+              {testErrors.slice(0, 10).map((e, i) => (
+                <div key={i} className="rounded bg-theme-bg-card p-1.5 text-[10px] leading-snug">
+                  <div className="font-medium text-theme-danger">
+                    #{i + 1} [{e.stage}]
+                  </div>
+                  <div className="text-theme-text-muted">文本: "{e.text}"</div>
+                  <div className="text-theme-text-muted">原因: {e.error}</div>
+                </div>
+              ))}
+              {testErrors.length > 10 && (
+                <div className="text-[10px] text-theme-text-muted">...还有 {testErrors.length - 10} 条错误未显示</div>
+              )}
+            </div>
+            {testErrors.length > 0 && testErrors.every((e) => e.stage.startsWith('tts-')) && (
+              <div className="rounded bg-theme-warning/10 p-2 text-[10px] text-theme-warning">
+                💡 提示: 所有失败都出现在 Edge TTS 阶段 (tts-connect/tts-generate/tts-empty)。可能是 Render 服务器无法访问微软 TTS 服务，或者 msedge-tts 库在该环境下不兼容。
+              </div>
+            )}
           </div>
         )}
         {!token && (

@@ -44,9 +44,13 @@ export function storagePath(userId: string, hash: string): string {
   return `${userId}/${hash}.mp3`;
 }
 
+export type TtsGenerateResult =
+  | { success: true; url: string; hash: string }
+  | { success: false; error: string; stage: 'supabase' | 'tts-connect' | 'tts-generate' | 'tts-empty' | 'upload' };
+
 /**
  * 使用 Edge TTS 生成单条音频并上传到 Supabase Storage
- * 返回公开访问 URL
+ * 返回带详细错误的结果对象
  */
 export async function generateAndUploadAudio(
   text: string,
@@ -57,7 +61,7 @@ export async function generateAndUploadAudio(
     pitch?: string;
     volume?: string;
   } = {}
-): Promise<{ url: string; hash: string } | null> {
+): Promise<TtsGenerateResult> {
   const voice = options.voice ?? DEFAULT_VOICE;
   const rate = options.rate ?? DEFAULT_RATE;
   const pitch = options.pitch ?? DEFAULT_PITCH;
@@ -69,7 +73,7 @@ export async function generateAndUploadAudio(
   const sb = getAdminSupabase();
   if (!sb) {
     console.warn('[tts] Supabase not configured, skip upload');
-    return null;
+    return { success: false, error: 'Supabase not configured', stage: 'supabase' };
   }
 
   // 构建 public URL（bucket 已设为 public）
@@ -82,7 +86,7 @@ export async function generateAndUploadAudio(
       .list(path.split('/')[0], { search: path.split('/')[1] });
     if (existingList && existingList.length > 0) {
       console.log(`[tts] audio already exists: ${path}`);
-      return { url: publicUrl, hash };
+      return { success: true, url: publicUrl, hash };
     }
   } catch {
     // 不存在，继续生成
@@ -92,13 +96,23 @@ export async function generateAndUploadAudio(
   let audioBuffer: Buffer;
   try {
     const tts = new MsEdgeTTS();
-    await tts.setMetadata(voice, OUTPUT_FMT);
+    try {
+      await tts.setMetadata(voice, OUTPUT_FMT);
+    } catch (metaErr) {
+      const msg = metaErr instanceof Error ? metaErr.message : String(metaErr);
+      console.error('[tts] setMetadata (tts-connect) failed:', msg);
+      return { success: false, error: `TTS连接失败: ${msg}`, stage: 'tts-connect' };
+    }
 
-    const { audioStream } = tts.toStream(text, {
-      rate,
-      pitch,
-      volume,
-    });
+    let audioStream: AsyncIterable<Buffer | Uint8Array>;
+    try {
+      const streamResult = tts.toStream(text, { rate, pitch, volume });
+      audioStream = streamResult.audioStream;
+    } catch (streamErr) {
+      const msg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+      console.error('[tts] toStream (tts-generate) failed:', msg);
+      return { success: false, error: `TTS生成失败: ${msg}`, stage: 'tts-generate' };
+    }
 
     const chunks: Buffer[] = [];
     for await (const chunk of audioStream) {
@@ -108,11 +122,12 @@ export async function generateAndUploadAudio(
 
     if (audioBuffer.length === 0) {
       console.warn('[tts] generated empty audio for:', text.slice(0, 30));
-      return null;
+      return { success: false, error: '生成音频为空 (0 字节)', stage: 'tts-empty' };
     }
   } catch (err) {
-    console.error('[tts] generation failed:', err);
-    return null;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[tts] generation wrapper failed:', msg);
+    return { success: false, error: `TTS生成异常: ${msg}`, stage: 'tts-generate' };
   }
 
   // 上传到 Supabase Storage
@@ -126,14 +141,15 @@ export async function generateAndUploadAudio(
 
     if (uploadError) {
       console.error('[tts] upload failed:', uploadError.message);
-      return null;
+      return { success: false, error: `上传失败: ${uploadError.message}`, stage: 'upload' };
     }
 
     console.log(`[tts] generated: ${path} (${audioBuffer.length} bytes)`);
-    return { url: publicUrl, hash };
+    return { success: true, url: publicUrl, hash };
   } catch (err) {
-    console.error('[tts] storage error:', err);
-    return null;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[tts] storage error:', msg);
+    return { success: false, error: `存储异常: ${msg}`, stage: 'upload' };
   }
 }
 
@@ -191,8 +207,17 @@ export function extractTextsFromDrills(
   return texts;
 }
 
+export type PregenerateErrorEntry = { text: string; error: string; stage: string };
+
+export type PregenerateResult = {
+  manifest: AudioManifest;
+  errors: PregenerateErrorEntry[];
+  totalTexts: number;
+  successCount: number;
+};
+
 /**
- * 批量预生成音频
+ * 批量预生成音频，返回带错误详情的结果
  */
 export async function pregenerateAudios(
   texts: string[],
@@ -201,33 +226,49 @@ export async function pregenerateAudios(
     voice?: string;
     rate?: string;
   } = {}
-): Promise<AudioManifest> {
+): Promise<PregenerateResult> {
   const voice = options.voice ?? DEFAULT_VOICE;
   const rate = options.rate ?? DEFAULT_RATE;
 
   const audioMap: Record<string, AudioManifestEntry> = {};
+  const errors: PregenerateErrorEntry[] = [];
+  const dedupedTexts = Array.from(new Set(texts.filter((t) => !!t)));
+  const totalTexts = dedupedTexts.length;
+  let successCount = 0;
 
   // 串行生成，避免并发太多被限流
-  for (const text of texts) {
-    if (!text) continue;
-    const result = await generateAndUploadAudio(text, userId, {
-      voice,
-      rate,
-    });
-    if (result) {
+  for (const text of dedupedTexts) {
+    const result = await generateAndUploadAudio(text, userId, { voice, rate });
+    if (result.success) {
       audioMap[text] = {
         text,
         url: result.url,
         hash: result.hash,
       };
+      successCount++;
+    } else {
+      errors.push({ text: text.length > 40 ? text.slice(0, 40) + '…' : text, error: result.error, stage: result.stage });
+      // 只打印前 3 条错误到日志，避免刷屏
+      if (errors.length <= 3) {
+        console.warn(`[tts] failed #${errors.length}: [${result.stage}] ${result.error} for "${text.slice(0, 30)}"`);
+      }
     }
   }
 
+  if (errors.length > 0) {
+    console.warn(`[tts] pregenerate summary: ${successCount}/${totalTexts} succeeded, ${errors.length} failed`);
+  }
+
   return {
-    voice,
-    rate,
-    generatedAt: new Date().toISOString(),
-    audioMap,
+    manifest: {
+      voice,
+      rate,
+      generatedAt: new Date().toISOString(),
+      audioMap,
+    },
+    errors,
+    totalTexts,
+    successCount,
   };
 }
 
