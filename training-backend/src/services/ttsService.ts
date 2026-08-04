@@ -39,9 +39,11 @@ export function textToHash(text: string, voice: string = DEFAULT_VOICE): string 
 
 /**
  * 生成 Storage 路径
+ * 注意：路径不能包含中文字符，否则 Supabase Storage 会报 "Invalid key"
+ * 使用纯 hash 作为文件名，相同文本+音色的音频可以跨用户复用
  */
-export function storagePath(userId: string, hash: string): string {
-  return `${userId}/${hash}.mp3`;
+export function storagePath(hash: string): string {
+  return `${hash}.mp3`;
 }
 
 export type TtsGenerateResult =
@@ -68,7 +70,7 @@ export async function generateAndUploadAudio(
   const volume = options.volume ?? DEFAULT_VOLUME;
 
   const hash = textToHash(text, voice);
-  const path = storagePath(userId, hash);
+  const path = storagePath(hash);
 
   const sb = getAdminSupabase();
   if (!sb) {
@@ -83,7 +85,7 @@ export async function generateAndUploadAudio(
   try {
     const { data: existingList } = await sb.storage
       .from(TTS_BUCKET)
-      .list(path.split('/')[0], { search: path.split('/')[1] });
+      .list('', { search: `${hash}.mp3` });
     if (existingList && existingList.length > 0) {
       console.log(`[tts] audio already exists: ${path}`);
       return { success: true, url: publicUrl, hash };
