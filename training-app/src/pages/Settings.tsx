@@ -596,7 +596,7 @@ function TtsDebugPanel() {
                 return;
               }
 
-              // 强制为真实模板预生成（不依赖已有 audioManifest，避免测试数据污染）
+              // 强制为真实模板预生成——直接传 drills，不依赖 templateId 查数据库
               const res = await api.post<{
                 success: boolean;
                 manifest: typeof audioManifest;
@@ -605,7 +605,12 @@ function TtsDebugPanel() {
                 successCount?: number;
                 errors?: PregenerateErrorEntry[];
               }>('/tts/pregenerate', {
-                templateId: firstTemplate.id,
+                drills: (firstTemplate.drills ?? []).map((d) => ({
+                  title: d.title,
+                  duration: d.duration,
+                  summary: d.summary,
+                  cues: d.cues?.map((c) => ({ text: c.text })),
+                })),
                 restDuration: 30,
               });
 
