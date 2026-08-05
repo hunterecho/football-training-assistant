@@ -40,7 +40,16 @@ export function useTtsManifest({ speech, templateId, planId, drills, restDuratio
   useEffect(() => {
     if (!enabled || !token) return;
 
-    const key = templateId ? `tpl:${templateId}` : planId ? `plan:${planId}` : '';
+    // 计算请求 key：templateId > planId > drills hash（全部 drills 标题拼接）
+    let key = '';
+    if (templateId) {
+      key = `tpl:${templateId}`;
+    } else if (planId) {
+      key = `plan:${planId}`;
+    } else if (drills && drills.length > 0) {
+      const drillsSig = drills.map((d) => `${d.title}:${d.duration}`).join('|');
+      key = `drills:${btoa(unescape(encodeURIComponent(drillsSig))).slice(0, 32)}`;
+    }
     if (!key) return;
 
     // drills 为空时不预生成
@@ -58,6 +67,7 @@ export function useTtsManifest({ speech, templateId, planId, drills, restDuratio
     if (drills && !templateId && !planId) {
       body.drills = drills.map((d) => ({
         title: d.title,
+        duration: d.duration,
         summary: d.summary,
         cues: d.cues?.map((c) => ({ text: c.text })),
       }));

@@ -264,12 +264,21 @@ export function useSpeech(options: UseSpeechOptions) {
     }
   }, [supported, pickVoice]);
 
+  // 规范化文本用于 audioMap 查找：移除所有空白字符
+  // 避免 "5 分钟" vs "5分钟" 这种格式差异导致匹配失败
+  const normalizeText = (s: string): string => s.replace(/\s+/g, '').toLowerCase();
+
   // 设置预生成的音频清单
   const setAudioManifest = useCallback((manifest: AudioManifest | null) => {
     const map = new Map<string, string>();
     if (manifest?.audioMap) {
       for (const [text, entry] of Object.entries(manifest.audioMap)) {
+        // 存储原始 key 和规范化 key 两份，提高匹配率
         map.set(text, entry.url);
+        const norm = normalizeText(text);
+        if (norm !== text) {
+          map.set(norm, entry.url);
+        }
         // 预加载音频文件
         preloadAudio(entry.url);
       }
@@ -283,7 +292,11 @@ export function useSpeech(options: UseSpeechOptions) {
       if (!text) return;
 
       // 最高优先级：有预生成的音频文件
-      const audioUrl = audioMapRef.current.get(text);
+      // 先查原始 key，查不到再查规范化 key
+      let audioUrl = audioMapRef.current.get(text);
+      if (!audioUrl) {
+        audioUrl = audioMapRef.current.get(normalizeText(text));
+      }
       if (audioUrl) {
         if (priority === 'high') {
           // 取消当前所有播放

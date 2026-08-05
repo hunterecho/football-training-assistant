@@ -71,9 +71,11 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   const drill = template?.drills[session.drillIndex] ?? null;
 
   // 预生成 TTS 音频（云希男声）
+  // 优先级：planId（分享计划/训练计划有独立 drills）> templateId（标准模板）
   const { manifestReady, manifestError } = useTtsManifest({
     speech,
-    templateId: template?.id,
+    templateId: activePlanId ? undefined : template?.id,
+    planId: activePlanId ?? undefined,
     drills: template?.drills,
     restDuration: session.restDuration,
     enabled: effectiveSpeechEnabled,

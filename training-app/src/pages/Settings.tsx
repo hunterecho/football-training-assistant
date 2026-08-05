@@ -319,15 +319,58 @@ function Toggle({
  */
 type PregenerateErrorEntry = { text: string; error: string; stage: string };
 
+// 规范化文本用于 audioMap 匹配（和 useSpeech.ts 中保持一致）
+const normalizeAudioMapKey = (s: string): string => s.replace(/\s+/g, '').toLowerCase();
+
+// 训练时真实播报的时长格式（和前端 formatDurationChinese 一致）
+const formatDurationChineseForTest = (seconds: number): string => {
+  if (seconds <= 0) return '0 秒';
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  if (m === 0) return `${s} 秒`;
+  if (s === 0) return `${m} 分钟`;
+  return `${m} 分 ${s} 秒`;
+};
+
+// 根据 drills 生成训练时会播报的所有文本（和 extractTextsFromDrills 保持一致）
+const simulateTrainingTexts = (
+  drills: { title?: string; duration?: number; summary?: string; cues?: { text?: string }[] }[],
+  restDuration: number = 0
+): string[] => {
+  const texts: string[] = [];
+  for (const d of drills) {
+    if (d.title) {
+      const durationStr = d.duration ? formatDurationChineseForTest(d.duration) : '';
+      texts.push(d.title);
+      texts.push(`现在开始 ${d.title}，时长 ${durationStr}`);
+      texts.push(`${d.title} 完成`);
+      if (restDuration > 0) {
+        texts.push(`${d.title} 完成，休息 ${formatDurationChineseForTest(restDuration)}`);
+      }
+    }
+    if (d.summary) texts.push(d.summary);
+    if (d.cues) for (const c of d.cues) if (c.text) texts.push(c.text);
+  }
+  texts.push('训练完成，大家辛苦了！');
+  texts.push('还剩一分钟');
+  texts.push('休息结束');
+  texts.push('开始休息');
+  return Array.from(new Set(texts.filter(Boolean)));
+};
+
 function TtsDebugPanel() {
   const token = useAuthStore((s) => s.token);
   const audioManifest = useTrainingStore((s) => s.audioManifest);
   const setAudioManifest = useTrainingStore((s) => s.setAudioManifest);
+  const templates = useTrainingStore((s) => s.templates);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string>('');
   const [testErrors, setTestErrors] = useState<PregenerateErrorEntry[]>([]);
   const [clearing, setClearing] = useState(false);
   const [clearResult, setClearResult] = useState<string>('');
+  const [matchResult, setMatchResult] = useState<string>('');
+  const [matchMissing, setMatchMissing] = useState<string[]>([]);
+  const [matchTesting, setMatchTesting] = useState(false);
 
   const isWechat = isWechatBrowser();
   const audioMapSize = audioManifest?.audioMap ? Object.keys(audioManifest.audioMap).length : 0;
@@ -359,6 +402,8 @@ function TtsDebugPanel() {
       // 4. 清除 audioManifest
       setAudioManifest(null);
       setTestErrors([]);
+      setMatchResult('');
+      setMatchMissing([]);
 
       const msg = `已清除 ${keysToRemove.length} 项 localStorage + sessionStorage + caches`;
       setClearResult(msg);
@@ -527,6 +572,131 @@ function TtsDebugPanel() {
             <AlertCircle className="h-3 w-3" />
             需要登录才能测试
           </div>
+        )}
+      </div>
+
+      {/* 训练语音匹配测试：用当前 audioManifest 和用户模板模拟训练播报匹配 */}
+      <div className="space-y-1">
+        <button
+          onClick={async () => {
+            setMatchTesting(true);
+            setMatchResult('匹配中...');
+            setMatchMissing([]);
+            try {
+              if (!audioManifest?.audioMap || audioMapSize === 0) {
+                // 没有 manifest 时，尝试用第一个模板生成
+                const firstTemplate = templates[0];
+                if (!firstTemplate) {
+                  setMatchResult('无可匹配：audioMap 为空且没有模板可用');
+                  return;
+                }
+                if (!token) {
+                  setMatchResult('无可匹配：audioMap 为空且未登录');
+                  return;
+                }
+                setMatchResult(`audioMap 为空，自动为模板"${firstTemplate.name}"预生成...`);
+                const res = await api.post<{
+                  success: boolean;
+                  manifest: typeof audioManifest;
+                  cached?: boolean;
+                  totalTexts?: number;
+                  successCount?: number;
+                  errors?: PregenerateErrorEntry[];
+                }>('/tts/pregenerate', {
+                  templateId: firstTemplate.id,
+                  restDuration: 30,
+                });
+                if (!res.data?.manifest) {
+                  setMatchResult(`预生成失败: ${res.error ?? '未知错误'}`);
+                  return;
+                }
+                setAudioManifest(res.data.manifest);
+                if (res.data.errors && res.data.errors.length > 0) {
+                  setTestErrors(res.data.errors);
+                }
+                // 继续匹配
+                await new Promise((r) => setTimeout(r, 200));
+              }
+
+              const map = new Map<string, string>();
+              const manifest = useTrainingStore.getState().audioManifest ?? audioManifest;
+              if (manifest?.audioMap) {
+                for (const [k, v] of Object.entries(manifest.audioMap)) {
+                  map.set(k, v.url);
+                  const n = normalizeAudioMapKey(k);
+                  if (n !== k) map.set(n, v.url);
+                }
+              }
+
+              // 使用 audioManifest 关联的模板或第一个模板做匹配基准
+              const drills = (templates[0]?.drills ?? []) as { title?: string; duration?: number; summary?: string; cues?: { text?: string }[] }[];
+              const expected = simulateTrainingTexts(drills, 30);
+              const hit: string[] = [];
+              const miss: string[] = [];
+              for (const t of expected) {
+                if (map.has(t) || map.has(normalizeAudioMapKey(t))) {
+                  hit.push(t);
+                } else {
+                  miss.push(t);
+                }
+              }
+
+              const rate = expected.length === 0 ? 0 : Math.round((hit.length / expected.length) * 100);
+              const rateColor = rate >= 80 ? 'text-green-600' : rate >= 50 ? 'text-theme-warning' : 'text-theme-danger';
+              setMatchResult(
+                `📊 匹配结果: ${hit.length}/${expected.length} (${rate}%)\n` +
+                `   audioMap 共 ${map.size} 条 (原始key ${Object.keys(audioManifest?.audioMap ?? {}).length} 条)\n` +
+                `   模板: "${templates[0]?.name ?? '无'}" (${drills.length}个环节)\n` +
+                `   ✅ 命中: ${hit.length}条  ❌ 未命中: ${miss.length}条 (${rateColor}匹配率${rate}%)`
+              );
+              setMatchMissing(miss);
+
+              // 尝试播放第一条命中项（intro 格式）
+              if (hit.length > 0) {
+                const introText = hit.find((s) => s.startsWith('现在开始')) ?? hit[0];
+                const url = map.get(introText) ?? map.get(normalizeAudioMapKey(introText));
+                if (url && introText) {
+                  setMatchResult((prev) => prev + `\n▶ 正在播放匹配样例: "${introText.slice(0, 25)}${introText.length > 25 ? '…' : ''}"`);
+                  try {
+                    await playAudioUrl(url, 1);
+                    setMatchResult((prev) => prev + '\n✓ 播放完成');
+                  } catch {
+                    setMatchResult((prev) => prev + '\n⚠ 播放失败 (可能需要用户交互)');
+                  }
+                }
+              }
+            } finally {
+              setMatchTesting(false);
+            }
+          }}
+          disabled={matchTesting || !templates.length || !token}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-theme-accent/30 bg-theme-accent/10 px-3 py-2 text-sm text-theme-accent hover:bg-theme-accent/20 disabled:opacity-50"
+        >
+          <Volume2 className="h-4 w-4" />
+          {matchTesting ? '匹配中...' : '🎧 模拟训练语音匹配 & 试播'}
+        </button>
+        {matchResult && (
+          <div className="whitespace-pre-wrap rounded bg-theme-bg-card p-2 text-xs text-theme-text-muted">
+            {matchResult}
+          </div>
+        )}
+        {matchMissing.length > 0 && (
+          <div className="rounded border border-theme-warning/30 bg-theme-warning/5 p-2">
+            <div className="mb-1 text-[11px] font-semibold text-theme-warning">未匹配的训练文本 (共 {matchMissing.length} 条):</div>
+            <div className="max-h-36 space-y-0.5 overflow-y-auto">
+              {matchMissing.map((t, i) => (
+                <div key={i} className="rounded bg-theme-bg-card px-1.5 py-1 text-[10px] text-theme-text-muted">
+                  • "{t}"
+                </div>
+              ))}
+            </div>
+            <div className="mt-1 text-[10px] text-theme-warning">
+              💡 未命中通常是模板/环节还未预生成音频，或前后端 formatDurationChinese 格式不一致（如 "5 分钟" vs "5分钟"）
+            </div>
+          </div>
+        )}
+        {!templates.length && token && (
+          <div className="text-[10px] text-theme-text-muted">没有模板，无法模拟训练匹配</div>
         )}
       </div>
     </div>
