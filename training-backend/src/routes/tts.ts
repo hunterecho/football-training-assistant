@@ -46,7 +46,59 @@ router.post('/pregenerate', async (req, res) => {
 
     let restDuration = (req.body as any).restDuration ?? 0;
 
-    if (templateId) {
+    // 优先用 body 里带的 drills（前端已有数据，避免查 DB 失败）
+    // templateId/planId 只用于查已有 manifest（缓存命中）和写回 audio_manifest
+    if (drills && drills.length > 0) {
+      drillData = drills;
+      // 如果同时带了 templateId/planId，尝试读取已有 manifest 做缓存命中
+      if (templateId) {
+        const sb = getAdminSupabase();
+        if (sb) {
+          const { data } = await sb
+            .from('templates')
+            .select('id, audio_manifest')
+            .eq('id', templateId)
+            .maybeSingle();
+          if (data) {
+            storageTable = 'templates';
+            storageId = data.id;
+            const existing = data.audio_manifest as AudioManifest | null;
+            if (existing && existing.voice === effectiveVoice && existing.audioMap) {
+              const texts = extractTextsFromDrills(drillData, restDuration);
+              const allCovered = texts.every((t) => existing.audioMap[t]);
+              if (allCovered) {
+                res.json({ success: true, manifest: existing, cached: true });
+                return;
+              }
+            }
+          }
+          // 查不到也不报错——drills 已有，照样生成，只是不写回 DB
+        }
+      } else if (planId) {
+        const sb = getAdminSupabase();
+        if (sb) {
+          const { data } = await sb
+            .from('plans')
+            .select('id, audio_manifest')
+            .eq('id', planId)
+            .maybeSingle();
+          if (data) {
+            storageTable = 'plans';
+            storageId = data.id;
+            const existing = data.audio_manifest as AudioManifest | null;
+            if (existing && existing.voice === effectiveVoice && existing.audioMap) {
+              const texts = extractTextsFromDrills(drillData, restDuration);
+              const allCovered = texts.every((t) => existing.audioMap[t]);
+              if (allCovered) {
+                res.json({ success: true, manifest: existing, cached: true });
+                return;
+              }
+            }
+          }
+        }
+      }
+    } else if (templateId) {
+      // 没传 drills，只能查 DB
       const sb = getAdminSupabase();
       if (sb) {
         const { data, error } = await sb
@@ -73,6 +125,7 @@ router.post('/pregenerate', async (req, res) => {
         }
       }
     } else if (planId) {
+      // 没传 drills，只能查 DB
       const sb = getAdminSupabase();
       if (sb) {
         const { data, error } = await sb
@@ -98,8 +151,6 @@ router.post('/pregenerate', async (req, res) => {
           }
         }
       }
-    } else if (drills) {
-      drillData = drills;
     } else {
       res.status(400).json({ error: 'templateId, planId or drills is required' });
       return;
