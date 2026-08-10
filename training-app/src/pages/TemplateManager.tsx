@@ -8,6 +8,9 @@ import {
   Copy,
   Edit3,
   Check,
+  Volume2,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -18,6 +21,38 @@ export function TemplateManager() {
   const removeTemplate = useTrainingStore((s) => s.removeTemplate);
   const duplicateTemplate = useTrainingStore((s) => s.duplicateTemplate);
   const updateTemplate = useTrainingStore((s) => s.updateTemplate);
+  const pregenerateTemplateAudio = useTrainingStore((s) => s.pregenerateTemplateAudio);
+
+  const [tplVoiceStatus, setTplVoiceStatus] = useState<Map<string, {
+    generating?: boolean;
+    lastError?: string;
+    cached?: boolean;
+    totalTexts?: number;
+    successCount?: number;
+  }>>(new Map());
+
+  const handleGenerateVoice = async (t: Template) => {
+    setTplVoiceStatus((prev) => {
+      const next = new Map(prev);
+      next.set(t.id, { generating: true });
+      return next;
+    });
+    const r = await pregenerateTemplateAudio(t.id);
+    setTplVoiceStatus((prev) => {
+      const next = new Map(prev);
+      next.set(t.id, {
+        generating: false,
+        lastError: r.success ? undefined : r.error,
+        cached: r.cached,
+        totalTexts: r.totalTexts,
+        successCount: r.successCount,
+      });
+      return next;
+    });
+    if (!r.success) {
+      alert(`语音生成失败：${r.error || '未知错误'}`);
+    }
+  };
   
 
   const [editing, setEditing] = useState<Template | null>(null);
@@ -178,24 +213,33 @@ export function TemplateManager() {
               )}
 
               {editing?.id !== t.id && (
-                <div className="mt-3">
-                  {t.drills.map((d, idx) => (
-                    <div
-                      key={d.id}
-                      className={cn(
-                        'flex items-center justify-between rounded-lg bg-theme-bg-card-subtle px-3 py-2 text-sm',
-                        idx > 0 && 'border-t border-theme-border/50'
-                      )}
-                    >
-                      <div className="flex items-center gap-2 text-theme-text-secondary">
-                        <span className="truncate">{d.title}</span>
+                <>
+                  <div className="mt-3">
+                    {t.drills.map((d, idx) => (
+                      <div
+                        key={d.id}
+                        className={cn(
+                          'flex items-center justify-between rounded-lg bg-theme-bg-card-subtle px-3 py-2 text-sm',
+                          idx > 0 && 'border-t border-theme-border/50'
+                        )}
+                      >
+                        <div className="flex items-center gap-2 text-theme-text-secondary">
+                          <span className="truncate">{d.title}</span>
+                        </div>
+                        <span className="text-xs text-theme-text-muted">
+                          {formatDuration(d.duration)}
+                        </span>
                       </div>
-                      <span className="text-xs text-theme-text-muted">
-                        {formatDuration(d.duration)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+
+                  {/* 语音播报状态行 */}
+                  <VoiceStatusRow
+                    template={t}
+                    status={tplVoiceStatus.get(t.id)}
+                    onGenerate={() => handleGenerateVoice(t)}
+                  />
+                </>
               )}
             </div>
           );
@@ -224,6 +268,85 @@ export function TemplateManager() {
         onConfirm={handleConfirm}
         onCancel={() => setConfirmDelete(null)}
       />
+    </div>
+  );
+}
+
+/**
+ * 模板语音播报状态 + 生成/重新生成按钮
+ * 跟模板保存完全解耦的独立操作：
+ * - 未生成 → 显示「生成语音播报」按钮
+ * - 已生成 → 显示「重新生成」按钮 + 状态（条目数/生成时间）
+ */
+function VoiceStatusRow({
+  template,
+  status,
+  onGenerate,
+}: {
+  template: Template;
+  status?: { generating?: boolean; lastError?: string; cached?: boolean; totalTexts?: number; successCount?: number };
+  onGenerate: () => void;
+}) {
+  const audioCount = template.audioManifest?.audioMap
+    ? Object.keys(template.audioManifest.audioMap).length
+    : 0;
+  const hasVoice = audioCount > 0;
+  const generating = !!status?.generating;
+
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-dashed border-theme-border px-3 py-2">
+      <div className="min-w-0 flex-1">
+        {generating ? (
+          <div className="flex items-center gap-2 text-xs text-theme-accent">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span>正在生成语音播报，请稍候（首次可能需要十几秒）...</span>
+          </div>
+        ) : status?.lastError ? (
+          <div className="text-xs text-theme-danger">
+            生成失败：{status.lastError}
+          </div>
+        ) : hasVoice ? (
+          <div className="text-xs text-theme-text-muted">
+            <span className="inline-flex items-center gap-1 rounded-full bg-theme-accent/10 px-2 py-0.5 text-theme-accent">
+              <Volume2 className="h-3 w-3" />
+              已生成
+            </span>
+            <span className="ml-2">{status?.cached ? '使用缓存' : `${status?.successCount ?? audioCount} / ${status?.totalTexts ?? audioCount} 条`}</span>
+            {template.audioManifest?.generatedAt && (
+              <span className="ml-2 text-theme-text-muted/70">
+                {new Date(template.audioManifest.generatedAt).toLocaleString('zh-CN', { hour12: false })}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="text-xs text-theme-text-muted">
+            尚未生成语音播报。训练时将只有提示音。
+          </div>
+        )}
+      </div>
+      <button
+        onClick={onGenerate}
+        disabled={generating}
+        className={cn(
+          'shrink-0 inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+          generating
+            ? 'bg-theme-bg-card-subtle text-theme-text-muted cursor-wait'
+            : hasVoice
+              ? 'border border-theme-accent/40 bg-theme-accent/10 text-theme-accent hover:bg-theme-accent/20'
+              : 'bg-theme-accent text-white hover:bg-theme-accent-hover'
+        )}
+      >
+        {generating ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : hasVoice ? (
+          <RefreshCw className="h-3.5 w-3.5" />
+        ) : (
+          <Volume2 className="h-3.5 w-3.5" />
+        )}
+        <span>
+          {generating ? '生成中' : hasVoice ? '重新生成' : '生成语音播报'}
+        </span>
+      </button>
     </div>
   );
 }

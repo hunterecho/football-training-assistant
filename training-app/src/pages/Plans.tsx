@@ -1323,6 +1323,18 @@ function PlanPicker({
   const handleCreate = () => {
     const tpl = templates.find((t) => t.id === selectedTemplateId);
     if (!tpl) return;
+
+    // 检查模板是否生成过语音播报——缺失时给出提示，但允许创建（解耦，不阻塞保存）
+    const tplAudioCount = tpl.audioManifest?.audioMap
+      ? Object.keys(tpl.audioManifest.audioMap).length
+      : 0;
+    if (tplAudioCount === 0) {
+      const ok = window.confirm(
+        '该模板尚未生成语音播报，训练时将只有提示音（beep）。\n\n是否继续创建计划？（可以先到「训练模板」页点"生成语音播报"再回来创建）'
+      );
+      if (!ok) return;
+    }
+
     addPlan({
       templateId: tpl.id,
       title: title || tpl.name,

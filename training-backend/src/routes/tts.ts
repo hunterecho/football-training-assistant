@@ -6,6 +6,7 @@ import {
   pregenerateAudios,
   DEFAULT_VOICE,
   DEFAULT_RATE,
+  ensureSystemManifest,
   type AudioManifest,
   type PregenerateErrorEntry,
 } from '../services/ttsService';
@@ -217,6 +218,23 @@ router.get('/manifest/:id', async (req, res) => {
     res.json({ success: true, manifest: data.audio_manifest ?? null });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+/**
+ * 获取系统级公共语音 manifest（固定文案 + 常见休息时长）
+ * GET /api/tts/system
+ * 所有训练共享，零 TTS 调用延迟
+ */
+router.get('/system', async (req, res) => {
+  try {
+    const userId = req.auth!.userId;
+    const manifest = await ensureSystemManifest(userId);
+    res.json({ success: true, manifest });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[tts] system manifest failed:', err);
     res.status(500).json({ error: msg });
   }
 });

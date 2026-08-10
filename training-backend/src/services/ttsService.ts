@@ -164,9 +164,52 @@ function formatDurationChinese(seconds: number): string {
   return `${m} 分 ${s} 秒`;
 }
 
+// 系统级公共语音：所有训练共享的固定文案 + 常见休息时长
+// 这些在服务启动时预生成，训练时直接取，零 TTS 调用延迟
+export const SYSTEM_REST_DURATIONS = [15, 20, 25, 30, 45, 60, 90, 120, 180];
+
+export function getSystemTexts(): string[] {
+  const texts: string[] = [
+    '训练完成，大家辛苦了！',
+    '还剩一分钟',
+    '休息结束',
+    '开始休息',
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    '7',
+    '8',
+    '9',
+    '10',
+  ];
+  for (const n of SYSTEM_REST_DURATIONS) {
+    texts.push(`休息 ${formatDurationChinese(n)}`);
+  }
+  // 每分钟、每分的"已过 N 分钟，还剩..."这类文案太多，不预生成——训练时如果找不到就走兜底
+  // 但补几个常用的"已过 1 分钟，还剩..."常见组合不值得，保持简洁
+  return texts;
+}
+
+// 缓存系统级 manifest（服务启动时生成，不会变）
+let cachedSystemManifest: AudioManifest | null = null;
+
+export async function ensureSystemManifest(userId: string): Promise<AudioManifest> {
+  if (cachedSystemManifest && Object.keys(cachedSystemManifest.audioMap).length > 0) {
+    return cachedSystemManifest;
+  }
+  const texts = getSystemTexts();
+  const result = await pregenerateAudios(texts, userId, { voice: DEFAULT_VOICE, rate: DEFAULT_RATE });
+  cachedSystemManifest = result.manifest;
+  console.log(`[tts] system manifest ready: ${Object.keys(result.manifest.audioMap).length}/${texts.length} texts`);
+  return cachedSystemManifest;
+}
+
 /**
  * 从模板/计划的 drills 中提取所有需要预生成的文本
- * 包括：原始文本 + 前端实际播报的组合文本
+ * 只包含模板级文本（跟具体 drill 绑定），休息相关文案在系统级语音中
  */
 export function extractTextsFromDrills(
   drills: Array<{
@@ -175,7 +218,7 @@ export function extractTextsFromDrills(
     summary?: string;
     cues?: Array<{ text?: string }>;
   }>,
-  restDuration: number = 0
+  _restDuration: number = 0
 ): string[] {
   const texts: string[] = [];
 
@@ -185,9 +228,6 @@ export function extractTextsFromDrills(
       const durationStr = drill.duration ? formatDurationChinese(drill.duration) : '';
       texts.push(`现在开始 ${drill.title}，时长 ${durationStr}`);
       texts.push(`${drill.title} 完成`);
-      if (restDuration > 0) {
-        texts.push(`${drill.title} 完成，休息 ${formatDurationChinese(restDuration)}`);
-      }
     }
     if (drill.summary) {
       texts.push(drill.summary);
@@ -200,11 +240,6 @@ export function extractTextsFromDrills(
       }
     }
   }
-
-  texts.push('训练完成，大家辛苦了！');
-  texts.push('还剩一分钟');
-  texts.push('休息结束');
-  texts.push('开始休息');
 
   return texts;
 }

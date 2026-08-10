@@ -12,7 +12,7 @@ import { llmRoutes } from './routes/llm';
 import { llmProxyRoutes } from './routes/llmProxy';
 import { ttsRoutes } from './routes/tts';
 import { getSupabase } from './db/client';
-import { ensureTtsBucket } from './services/ttsService';
+import { ensureTtsBucket, ensureSystemManifest, DEFAULT_VOICE } from './services/ttsService';
 
 async function ensurePlanColumns() {
   if (!isSupabaseConfigured()) return;
@@ -186,4 +186,21 @@ Promise.all([ensurePlanColumns(), ensureTtsBucket()]).then(() => {
       `[backend] supabase ${config.supabaseUrl ? 'configured' : 'NOT configured (mock mode)'}`
     );
   });
+
+  // 后台异步预生成系统级公共语音（不阻塞服务启动）
+  // 生成所有训练共享的固定文案 + 常见休息时长的音频
+  // 即使失败也不影响服务可用性，训练执行时首次 GET /tts/system 会重试
+  if (config.supabaseUrl) {
+    setTimeout(() => {
+      const systemUserId = 'system'; // 用一个固定 userId，避免依赖真实用户
+      ensureSystemManifest(systemUserId)
+        .then((manifest) => {
+          const count = Object.keys(manifest.audioMap).length;
+          console.log(`[tts] system manifest ready on startup: ${count} entries (voice=${manifest.voice || DEFAULT_VOICE})`);
+        })
+        .catch((err) => {
+          console.warn('[tts] system manifest pregen on startup failed (will retry on first request):', err instanceof Error ? err.message : String(err));
+        });
+    }, 3000); // 延迟3秒，避免与 schema 迁移/健康检查竞争
+  }
 });

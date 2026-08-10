@@ -19,6 +19,7 @@ import {
   Clock,
   ChevronDown,
   ChevronUp,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -70,18 +71,21 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   }, [templates, activeId, activeRecordId, records]);
   const drill = template?.drills[session.drillIndex] ?? null;
 
-  // 预生成 TTS 音频（云希男声）
-  // 优先级：planId（分享计划/训练计划有独立 drills）> templateId（标准模板）
-  const { manifestReady, manifestError } = useTtsManifest({
+  // 加载 TTS manifest：
+  // 1. GET 模板已预生成的 manifest（模板编辑页生成并存在 DB）
+  // 2. 并行 GET 系统级公共语音（倒计时数字、"休息 X 秒"、"训练完成"等）
+  // 3. 合并 audioMap 给到 speech——绝不调 pregenerate、绝不写全局 store
+  // 注意：用 template.id 和 activePlanId 作为稳定 key，不传 drills（避免 drills 变化引起重请求）
+  const { manifestReady, manifestError, templateAudioMissing } = useTtsManifest({
     speech,
-    templateId: activePlanId ? undefined : template?.id,
+    templateId: template?.id,
     planId: activePlanId ?? undefined,
-    drills: template?.drills,
-    restDuration: session.restDuration,
     enabled: effectiveSpeechEnabled,
   });
   const manifestReadyRef = useRef(false);
   manifestReadyRef.current = manifestReady;
+  const missingRef = useRef(false);
+  missingRef.current = templateAudioMissing;
 
   // When muted changes, sync with speech engine.
   useEffect(() => {
@@ -324,6 +328,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
       lastEndedRef.current = true;
       const isLast = session.drillIndex >= template.drills.length - 1;
       if (isLast) {
+        // 系统级文本：训练完成，大家辛苦了！
         speech.enqueue('训练完成，大家辛苦了！');
         if (activeRecordId) {
           const record = records.find((r) => r.id === activeRecordId);
@@ -333,8 +338,12 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
         }
         beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
       } else {
-        const next = template.drills[session.drillIndex + 1];
-        speech.enqueue(`${drill.title} 完成，休息 ${formatDurationChinese(session.restDuration)}`);
+        // 拆分：先播 "X完成"（模板级文本），再播 "休息 N秒"（系统级文本）
+        // 之前是拼接成一条 "X完成，休息 N秒"，现在拆分后各自匹配预生成音频
+        speech.enqueue(`${drill.title} 完成`);
+        if (session.restDuration > 0) {
+          speech.enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
+        }
         beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
         window.setTimeout(() => {
           speech.clear();
@@ -368,6 +377,21 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
 
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center gap-6 p-6 text-center">
+        {/* 模板语音未生成提示（manifest 加载后检测） */}
+        {templateAudioMissing && effectiveSpeechEnabled && (
+          <div className="w-full max-w-sm flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-left">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 mt-0.5" />
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-amber-800">该模板尚未生成语音播报</div>
+              <p className="mt-1 text-xs text-amber-700">
+                训练时将只有提示音（beep），没有语音内容。请前往
+                <span className="font-semibold">「训练模板」</span>页，在对应模板下点击
+                <span className="font-semibold">「生成语音播报」</span>按钮生成。
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="w-full max-w-sm rounded-3xl border border-theme-border bg-theme-bg-card-light p-6">
           <div className="text-xs uppercase tracking-widest text-theme-accent">
             训练计时
@@ -385,10 +409,10 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
           {template?.description && (
             <p className="mt-2 text-xs text-theme-text-muted">{template.description}</p>
           )}
-          {speech.useFallback && settings.speechEnabled && (
+          {speech.useFallback && settings.speechEnabled && !templateAudioMissing && (
             <div className="mt-4 flex items-center justify-center gap-2 text-xs text-amber-600 bg-amber-50 rounded-lg py-2 px-3">
               <span>🔔</span>
-              <span>提示音模式（点击开始后会有提示音和振动）</span>
+              <span>提示音模式（当前环境不支持语音合成）</span>
             </div>
           )}
         </div>

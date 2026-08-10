@@ -625,8 +625,9 @@ function TtsDebugPanel() {
                 return;
               }
 
-              // 写入全局 audioManifest（这次是真实模板数据，可以安全使用）
-              setAudioManifest(manifest);
+              // ⚠️ 调试面板专用：不写入全局 trainingStore.audioManifest
+              // 新架构下 SessionTimer 直接从后端 GET 模板 manifest，不读全局 store
+              // 所以这里不用 setAudioManifest，避免误导用户"写了全局就生效"的幻觉
               if (res.data.errors && res.data.errors.length > 0) {
                 setTestErrors(res.data.errors);
               }

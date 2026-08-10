@@ -33,6 +33,15 @@ type TrainingStore = {
   removeTemplate: (id: string) => void;
   duplicateTemplate: (id: string) => void;
 
+  /** 为模板生成语音播报（解耦的手动操作，不跟保存绑定）。返回成功/失败以及生成的条目数。 */
+  pregenerateTemplateAudio: (templateId: string) => Promise<{
+    success: boolean;
+    totalTexts?: number;
+    successCount?: number;
+    cached?: boolean;
+    error?: string;
+  }>;
+
   setActiveTemplate: (id: string | null) => void;
   setActivePlan: (id: string | null) => void;
   setActiveRecord: (id: string | null) => void;
@@ -95,7 +104,7 @@ export const toDateKey = (d: Date): string => {
   return `${y}-${m}-${day}`;
 };
 
-const mapTemplateFromServer = (t: { id: string; name: string; description?: string; drills?: { id?: string; title?: string; duration?: number; summary?: string; cues?: { id?: string; text?: string; trigger?: string; seconds?: number }[] }[]; created_at?: string; rest_duration?: number }): Template => ({
+const mapTemplateFromServer = (t: { id: string; name: string; description?: string; drills?: { id?: string; title?: string; duration?: number; summary?: string; cues?: { id?: string; text?: string; trigger?: string; seconds?: number }[] }[]; created_at?: string; rest_duration?: number; audio_manifest?: AudioManifest | null }): Template => ({
   id: t.id,
   name: t.name,
   description: t.description,
@@ -113,6 +122,7 @@ const mapTemplateFromServer = (t: { id: string; name: string; description?: stri
     })),
   })),
   createdAt: t.created_at ? new Date(t.created_at).getTime() : Date.now(),
+  audioManifest: t.audio_manifest ?? null,
 });
 
 const mapPlanFromServer = (p: { id: string; user_id?: string; template_id?: string; title: string; date?: string; status?: string; note?: string; drills?: Drill[]; source_plan_id?: string; sharer_name?: string; created_at?: string; completed_at?: string }): TrainingPlan => ({
@@ -244,6 +254,7 @@ export const useTrainingStore = create<TrainingStore>()(
             id: uid('tpl'),
             name: `${t.name} 副本`,
             createdAt: Date.now(),
+            audioManifest: null, // 副本不继承语音，需要用户手动重新生成
             drills: t.drills.map((d) => ({
               ...d,
               id: uid('drill'),
@@ -260,6 +271,54 @@ export const useTrainingStore = create<TrainingStore>()(
           }
           return { templates: [...s.templates, copy] };
         }),
+
+      // 为指定模板生成语音播报（手动触发，不跟模板保存绑定）
+      // 成功后把返回的 manifest 存回 templates 列表，前端就能直接读取
+      pregenerateTemplateAudio: async (templateId) => {
+        const token = useAuthStore.getState().token;
+        if (!token) return { success: false, error: '未登录' };
+        const tpl = get().templates.find((x) => x.id === templateId);
+        if (!tpl) return { success: false, error: '模板不存在' };
+        if (!tpl.drills || tpl.drills.length === 0) return { success: false, error: '模板没有环节' };
+
+        try {
+          const res = await api.post<{
+            success: boolean;
+            manifest: AudioManifest;
+            cached?: boolean;
+            totalTexts?: number;
+            successCount?: number;
+          }>('/tts/pregenerate', {
+            templateId,
+            drills: tpl.drills.map((d) => ({
+              title: d.title,
+              duration: d.duration,
+              summary: d.summary,
+              cues: d.cues?.map((c) => ({ text: c.text })),
+            })),
+            restDuration: 0,
+          });
+          if (res.error || !res.data?.manifest) {
+            return { success: false, error: res.error || '生成失败' };
+          }
+          const manifest = res.data.manifest;
+          // 存回本地 state（后续 syncFromServer 也会再次拉取 DB 里的 manifest 覆盖）
+          set((s) => ({
+            templates: s.templates.map((t) =>
+              t.id === templateId ? { ...t, audioManifest: manifest } : t
+            ),
+          }));
+          return {
+            success: true,
+            cached: !!res.data.cached,
+            totalTexts: res.data.totalTexts,
+            successCount: res.data.successCount,
+          };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return { success: false, error: msg };
+        }
+      },
 
       setActiveTemplate: (id) => set({ activeTemplateId: id }),
       setActivePlan: (id) => set({ activePlanId: id }),

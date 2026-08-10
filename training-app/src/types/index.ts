@@ -22,6 +22,8 @@ export type Template = {
   drills: Drill[];
   restDuration?: number;
   createdAt: number;
+  /** 预生成的语音播报清单（模板编辑页手动生成并持久化到 DB）。null/{} 表示尚未生成。 */
+  audioManifest?: AudioManifest | null;
 };
 
 export type PlanStatus = 'planned' | 'completed' | 'skipped' | 'terminated';
