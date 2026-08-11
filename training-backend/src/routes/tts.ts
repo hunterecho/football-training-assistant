@@ -7,6 +7,7 @@ import {
   DEFAULT_VOICE,
   DEFAULT_RATE,
   ensureSystemManifest,
+  TTS_BUCKET,
   type AudioManifest,
   type PregenerateErrorEntry,
 } from '../services/ttsService';
@@ -177,26 +178,41 @@ router.post('/pregenerate', async (req, res) => {
 
     // 存到数据库
     let persisted = false;
+    let persistError: string | undefined;
     if (storageTable && storageId) {
       try {
         const sb = getAdminSupabase();
-        if (sb) {
-          const { error: updateError } = await sb
+        if (!sb) {
+          persistError =
+            'Database not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY missing)';
+        } else {
+          const { error: updateError, status, statusText } = await sb
             .from(storageTable)
-            .update({ audio_manifest: preResult.manifest })
-            .eq('id', storageId);
+            .update({ audio_manifest: preResult.manifest } as any)
+            .eq('id', storageId)
+            .select('id, audio_manifest')
+            .maybeSingle();
           if (updateError) {
-            console.error('[tts] write-back audio_manifest failed:', updateError.message);
+            persistError = updateError.message;
+            console.error('[tts] write-back audio_manifest failed:', updateError);
           } else {
             persisted = true;
-            console.log(`[tts] audio_manifest persisted to ${storageTable}/${storageId}, ${preResult.successCount}/${preResult.totalTexts} audios`);
+            console.log(
+              `[tts] audio_manifest persisted to ${storageTable}/${storageId},`,
+              `${preResult.successCount}/${preResult.totalTexts} audios`,
+              `(status=${status} ${statusText || ''})`
+            );
           }
         }
       } catch (e) {
+        persistError = e instanceof Error ? e.message : String(e);
         console.error('[tts] write-back exception:', e);
       }
     } else {
-      console.warn('[tts] skip write-back: storageTable or storageId is null (template may not exist in DB yet)');
+      persistError = storageTable
+        ? 'storageId missing (template/plan record not found in DB)'
+        : 'Neither templateId nor planId matched a DB record';
+      console.warn('[tts] skip write-back:', persistError);
     }
 
     res.json({
@@ -204,6 +220,7 @@ router.post('/pregenerate', async (req, res) => {
       manifest: preResult.manifest,
       cached: false,
       persisted,
+      persistError,
       totalTexts: preResult.totalTexts,
       successCount: preResult.successCount,
       errors: preResult.errors as PregenerateErrorEntry[],
@@ -302,6 +319,85 @@ router.get('/system', async (req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[tts] system manifest failed:', err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+/**
+ * 一键重置所有语音数据（架构升级后清理脏数据用）
+ * POST /api/tts/admin/reset-all
+ * 1. 清空 templates / plans 表 audio_manifest 字段（当前用户范围）
+ * 2. 可选：清空 tts-audio bucket 下的所有对象
+ * 仅当前登录用户自己的数据，不涉及他人
+ */
+router.post('/admin/reset-all', async (req, res) => {
+  try {
+    const userId = req.auth!.userId;
+    const { clearStorage = true } = (req.body || {}) as { clearStorage?: boolean };
+    const sb = getAdminSupabase();
+    if (!sb) {
+      res.status(500).json({ error: 'Database not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY missing)' });
+      return;
+    }
+
+    const results: Record<string, unknown> = {};
+
+    // 1. 清空当前用户 templates 的 audio_manifest
+    const tplUpdate = await sb
+      .from('templates')
+      .update({ audio_manifest: null } as any)
+      .eq('user_id', userId);
+    results.templates = { error: tplUpdate.error?.message ?? null, status: tplUpdate.status };
+
+    // 2. 清空当前用户 plans 的 audio_manifest（表结构有该字段时才生效，字段不存在会忽略报错并返回错误）
+    const planUpdate = await sb
+      .from('plans')
+      .update({ audio_manifest: null } as any)
+      .eq('user_id', userId);
+    results.plans = { error: planUpdate.error?.message ?? null, status: planUpdate.status };
+
+    // 3. 清空 system_settings 中的 system manifest 缓存（key: tts.system_manifest）
+    const sysSetUpdate = await sb
+      .from('system_settings')
+      .delete()
+      .eq('key', 'tts.system_manifest');
+    results.systemSettings = { error: (sysSetUpdate as any).error?.message ?? null, status: (sysSetUpdate as any).status };
+
+    // 4. 清空 tts-audio bucket（可选，默认开启）
+    if (clearStorage) {
+      try {
+        const { data: listData, error: listError } = await sb
+          .storage
+          .from(TTS_BUCKET)
+          .list('', { limit: 1000, offset: 0 });
+        if (listError) {
+          results.storage = { step: 'list', error: listError.message };
+        } else if (listData && listData.length > 0) {
+          const paths = listData.map((f) => f.name);
+          const { error: rmError } = await sb
+            .storage
+            .from(TTS_BUCKET)
+            .remove(paths);
+          results.storage = {
+            step: 'remove',
+            removed: paths.length,
+            error: rmError?.message ?? null,
+          };
+        } else {
+          results.storage = { step: 'list', removed: 0, error: null };
+        }
+      } catch (e) {
+        results.storage = {
+          step: 'exception',
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }
+
+    res.json({ success: true, userId, results });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[tts] reset-all exception:', err);
     res.status(500).json({ error: msg });
   }
 });

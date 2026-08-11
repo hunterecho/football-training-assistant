@@ -40,6 +40,7 @@ type TrainingStore = {
     successCount?: number;
     cached?: boolean;
     persisted?: boolean;
+    persistError?: string;
     error?: string;
   }>;
 
@@ -288,6 +289,7 @@ export const useTrainingStore = create<TrainingStore>()(
             manifest: AudioManifest;
             cached?: boolean;
             persisted?: boolean;
+            persistError?: string;
             totalTexts?: number;
             successCount?: number;
           }>('/tts/pregenerate', {
@@ -314,6 +316,7 @@ export const useTrainingStore = create<TrainingStore>()(
             success: true,
             cached: !!res.data.cached,
             persisted: res.data.persisted,
+            persistError: res.data.persistError,
             totalTexts: res.data.totalTexts,
             successCount: res.data.successCount,
           };

@@ -31,6 +31,7 @@ export function TemplateManager() {
     lastError?: string;
     cached?: boolean;
     persisted?: boolean;
+    persistError?: string;
     totalTexts?: number;
     successCount?: number;
   }>>(new Map());
@@ -49,6 +50,7 @@ export function TemplateManager() {
         lastError: r.success ? undefined : r.error,
         cached: r.cached,
         persisted: r.persisted,
+        persistError: r.persistError,
         totalTexts: r.totalTexts,
         successCount: r.successCount,
       });
@@ -56,9 +58,6 @@ export function TemplateManager() {
     });
     if (!r.success) {
       alert(`语音生成失败：${r.error || '未知错误'}`);
-    } else if (!r.persisted && !r.cached) {
-      // 生成成功但没持久化到 DB —— 提示用户
-      console.warn('[voice] 语音已生成但未持久化到数据库，刷新后可能丢失');
     }
   };
   
@@ -292,7 +291,7 @@ function VoiceStatusRow({
   onGenerate,
 }: {
   template: Template;
-  status?: { generating?: boolean; lastError?: string; cached?: boolean; persisted?: boolean; totalTexts?: number; successCount?: number };
+  status?: { generating?: boolean; lastError?: string; cached?: boolean; persisted?: boolean; persistError?: string; totalTexts?: number; successCount?: number };
   onGenerate: () => void;
 }) {
   const [playing, setPlaying] = useState(false);
@@ -303,7 +302,9 @@ function VoiceStatusRow({
     : 0;
   const hasVoice = audioCount > 0;
   const generating = !!status?.generating;
-  const notPersisted = status && !status.persisted && !status.cached && hasVoice && !status.lastError;
+  const showPersistWarn =
+    status && !status.cached && !status.lastError && hasVoice && !status.persisted;
+  const persistMsg = status?.persistError;
 
   const handlePreview = () => {
     if (!template.audioManifest?.audioMap) return;
@@ -401,10 +402,16 @@ function VoiceStatusRow({
           </button>
         </div>
       </div>
-      {notPersisted && (
-        <div className="flex items-center gap-1.5 rounded-lg bg-theme-warning/10 px-3 py-1 text-[10px] text-theme-warning">
-          <AlertTriangle className="h-3 w-3 shrink-0" />
-          <span>语音已生成但未保存到云端（模板可能尚未同步），刷新后可能需要重新生成</span>
+      {showPersistWarn && (
+        <div className="flex items-start gap-1.5 rounded-lg bg-theme-warning/10 px-3 py-1.5 text-[10px] text-theme-warning">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="font-medium">语音已生成但<b>未保存到数据库</b>，刷新页面后需要重新生成</div>
+            {persistMsg && <div className="mt-0.5 break-all opacity-80">原因：{persistMsg}</div>}
+            <div className="mt-0.5 opacity-80">
+              建议检查 Render 环境变量是否已正确配置 SUPABASE_URL 和 SUPABASE_SERVICE_KEY
+            </div>
+          </div>
         </div>
       )}
     </div>
