@@ -295,7 +295,10 @@ function VoiceStatusRow({
   onGenerate: () => void;
 }) {
   const [playing, setPlaying] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(-1);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playingRef = useRef(false);
+  playingRef.current = playing;
 
   const audioCount = template.audioManifest?.audioMap
     ? Object.keys(template.audioManifest.audioMap).length
@@ -311,23 +314,57 @@ function VoiceStatusRow({
     const entries = Object.entries(template.audioManifest.audioMap);
     if (entries.length === 0) return;
 
-    // 优先选有意义的文本（如"现在开始 XX"），否则取第一条
-    const preferKey = entries.find(([k]) => k.includes('现在开始') || k.includes('开始'))?.[0]
-      || entries[0][0];
-    const url = template.audioManifest.audioMap[preferKey]?.url;
-    if (!url) return;
-
-    if (playing && audioRef.current) {
-      audioRef.current.pause();
-      setPlaying(false);
+    if (playing) {
+      stopPreview();
       return;
     }
 
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    audio.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-    audio.onended = () => setPlaying(false);
-    audio.onerror = () => setPlaying(false);
+    // 顺序播放所有语音
+    setPlaying(true);
+    setPreviewIndex(0);
+
+    const playSequence = async (idx: number) => {
+      if (idx >= entries.length) {
+        setPlaying(false);
+        setPreviewIndex(-1);
+        return;
+      }
+      if (!playingRef.current) return; // 已停止
+
+      const [text, entry] = entries[idx];
+      setPreviewIndex(idx);
+      const url = entry?.url;
+      if (!url) {
+        playSequence(idx + 1);
+        return;
+      }
+
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.volume = 1;
+      audio.onended = () => {
+        if (playingRef.current) playSequence(idx + 1);
+      };
+      audio.onerror = () => {
+        if (playingRef.current) playSequence(idx + 1);
+      };
+      try {
+        await audio.play();
+      } catch {
+        if (playingRef.current) playSequence(idx + 1);
+      }
+    };
+
+    playSequence(0);
+  };
+
+  const stopPreview = () => {
+    setPlaying(false);
+    setPreviewIndex(-1);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
   };
 
   return (
@@ -374,7 +411,7 @@ function VoiceStatusRow({
               )}
             >
               {playing ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-              <span>{playing ? '停止' : '试听'}</span>
+              <span>{playing ? `停止 (${previewIndex + 1}/${audioCount})` : '试听全部'}</span>
             </button>
           )}
           <button

@@ -81,6 +81,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
     templateId: template?.id,
     planId: activePlanId ?? undefined,
     enabled: effectiveSpeechEnabled,
+    fallbackManifest: template?.audioManifest ?? undefined,
   });
   const manifestReadyRef = useRef(false);
   manifestReadyRef.current = manifestReady;
