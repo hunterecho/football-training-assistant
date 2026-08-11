@@ -27,6 +27,7 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   const activeId = useTrainingStore((s) => s.activeTemplateId);
   const activePlanId = useTrainingStore((s) => s.activePlanId);
   const templates = useTrainingStore((s) => s.templates);
+  const plans = useTrainingStore((s) => s.plans);
   const session = useTrainingStore((s) => s.session);
   const records = useTrainingStore((s) => s.records);
   const activeRecordId = useTrainingStore((s) => s.activeRecordId);
@@ -58,18 +59,54 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   const { beep } = useBeep();
 
   const template = useMemo(() => {
-    // 优先使用 activeRecordId 关联的模板
+    // ⚠️ 关键：从 TodayPlan 启动训练时，startSession 传入的是 planId，
+    // activeTemplateId 实际存的是 planId，不能直接用它在 templates 中查找。
+    // 查找顺序：
+    // 1. 通过 activeRecordId 关联的 templateId 查找
+    // 2. 通过 activeTemplateId 直接查找（模板训练场景）
+    // 3. activeTemplateId 可能是 planId，通过 plan.templateId 反向查找
+    // 4. 通过 activePlanId 的 plan.templateId 反向查找
+
+    // 1. 优先用 activeRecordId 关联的模板
     if (activeRecordId) {
       const activeRecord = records.find((r) => r.id === activeRecordId);
-      if (activeRecord) {
+      if (activeRecord?.templateId) {
         const tpl = templates.find((t) => t.id === activeRecord.templateId);
         if (tpl) return tpl;
       }
     }
-    // 其次使用 activeTemplateId
-    return templates.find((t) => t.id === activeId) ?? null;
-  }, [templates, activeId, activeRecordId, records]);
+    // 2. 用 activeTemplateId 直接查找模板
+    if (activeId) {
+      const tpl = templates.find((t) => t.id === activeId);
+      if (tpl) return tpl;
+    }
+    // 3. activeTemplateId 可能是 planId，通过 plan.templateId 反向查找
+    const planIdForLookup = activeId ?? activePlanId;
+    if (planIdForLookup) {
+      const plan = plans.find((p) => p.id === planIdForLookup);
+      if (plan?.templateId) {
+        const tpl = templates.find((t) => t.id === plan.templateId);
+        if (tpl) return tpl;
+      }
+    }
+    return null;
+  }, [templates, activeId, activeRecordId, records, plans, activePlanId]);
   const drill = template?.drills[session.drillIndex] ?? null;
+
+  // 诊断日志：确认 template 查找结果和 audioManifest 状态
+  useEffect(() => {
+    console.log('[SessionTimer] template lookup:', {
+      found: !!template,
+      templateId: template?.id,
+      hasAudioManifest: !!template?.audioManifest,
+      audioMapCount: Object.keys(template?.audioManifest?.audioMap ?? {}).length,
+      activeId,
+      activePlanId,
+      activeRecordId,
+      templatesCount: templates.length,
+      plansCount: plans.length,
+    });
+  }, [template, activeId, activePlanId, activeRecordId, templates.length, plans.length]);
 
   // 加载 TTS manifest：
   // 1. GET 模板已预生成的 manifest（模板编辑页生成并存在 DB）

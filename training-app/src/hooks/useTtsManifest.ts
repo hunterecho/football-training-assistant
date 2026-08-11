@@ -41,6 +41,15 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
   /** 模板级 manifest 是否缺失（为空或 audioMap 空）——用于页面提示用户去模板页生成 */
   const [templateAudioMissing, setTemplateAudioMissing] = useState(false);
   const loadedKeyRef = useRef<string>('');
+  // ⚠️ 关键修复：用 epoch 计数器防止旧 Promise 覆盖新 Promise 的结果
+  // 之前移除了 cancelled 标志（因为 speech 引用变化会误触发 cleanup），
+  // 但这导致当 fallbackManifest 从 null 变为非 null 时，effect 会重新运行，
+  // 两个并发的 Promise.all 可能以任意顺序 resolve：
+  //   1. 第一次（无 fallback）→ 空 merged manifest
+  //   2. 第二次（有 fallback）→ 非空 merged manifest
+  // 如果第一次的 Promise 后 resolve，会用空 manifest 覆盖第二次的非空 manifest
+  // 用 epoch 确保只有最后一次 effect 的 Promise 结果才会被应用
+  const requestEpochRef = useRef(0);
 
   // ⚠️ 关键修复：用 ref 保存 speech.setAudioManifest 和 fallbackManifest
   // 避免它们作为 useEffect 依赖时，因引用变化导致 effect 被 cleanup（cancelled=true）
@@ -84,13 +93,15 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
     setManifestError('');
     setTemplateAudioMissing(false);
 
-    // 不再使用 cancelled 标志——因为 effect 不会被 speech 引用变化中断了
-    // 依赖数组里只有稳定值（enabled/token/key/fallbackKey），Promise resolve 后一定会 setAudioManifest
+    // 用 epoch 标记本次请求，只有最新的请求结果才会被应用
+    // 防止旧 Promise（无 fallback）resolve 后覆盖新 Promise（有 fallback）的结果
+    const myEpoch = ++requestEpochRef.current;
+
     const type = templateId ? 'template' : 'plan';
     const id = (templateId || planId)!;
     const currentFallback = fallbackManifestRef.current;
 
-    console.log('[tts] 开始加载 manifest:', { id, type, hasFallback });
+    console.log('[tts] 开始加载 manifest:', { id, type, hasFallback, epoch: myEpoch });
 
     Promise.all([
       api.get<{ success: boolean; manifest: AudioManifest | null }>(`/tts/manifest/${id}?type=${type}`)
@@ -115,6 +126,12 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
         }),
     ])
       .then(([templateManifest, systemManifest]) => {
+        // ⚠️ 关键：如果这不是最新的请求，跳过（旧 Promise 的结果）
+        if (myEpoch !== requestEpochRef.current) {
+          console.log('[tts] 旧请求结果被丢弃 (epoch mismatch):', myEpoch, '→', requestEpochRef.current);
+          return;
+        }
+
         // DB 拉不到模板 manifest 时，尝试用内存中的 fallback（store 里的）
         let effectiveTemplateManifest = templateManifest;
         const dbCount = Object.keys(templateManifest?.audioMap ?? {}).length;
@@ -149,6 +166,7 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
           systemCount: Object.keys(systemManifest?.audioMap ?? {}).length,
           mergedCount,
           usedFallback: effectiveTemplateManifest !== templateManifest,
+          epoch: myEpoch,
         });
 
         // 通过 ref 调用，避免依赖 speech 对象引用
@@ -160,6 +178,8 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
         setManifestReady(true);
       })
       .catch((err) => {
+        // 旧的请求失败也不应用
+        if (myEpoch !== requestEpochRef.current) return;
         const msg = err instanceof Error ? err.message : String(err);
         console.warn('[tts] load manifest failed:', msg);
         setManifestError(msg);
