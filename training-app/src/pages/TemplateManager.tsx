@@ -322,11 +322,13 @@ function VoiceStatusRow({
     // 顺序播放所有语音
     setPlaying(true);
     setPreviewIndex(0);
+    playingRef.current = true;
 
-    const playSequence = async (idx: number) => {
+    const playSequence = (idx: number) => {
       if (idx >= entries.length) {
         setPlaying(false);
         setPreviewIndex(-1);
+        playingRef.current = false;
         return;
       }
       if (!playingRef.current) return; // 已停止
@@ -334,31 +336,62 @@ function VoiceStatusRow({
       const [text, entry] = entries[idx];
       setPreviewIndex(idx);
       const url = entry?.url;
+      console.log(`[preview] ${idx + 1}/${entries.length} text="${text}" url=${url?.slice(0, 80)}...`);
       if (!url) {
+        console.warn('[preview] no url, skip');
         playSequence(idx + 1);
         return;
       }
+
+      // 超时保护：15 秒后自动跳到下一条
+      let timeoutId: number | undefined;
+      let advanced = false;
+      const goNext = () => {
+        if (advanced) return;
+        advanced = true;
+        if (timeoutId) window.clearTimeout(timeoutId);
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current = null;
+        }
+        if (playingRef.current) playSequence(idx + 1);
+      };
 
       const audio = new Audio(url);
       audioRef.current = audio;
       audio.volume = 1;
       audio.onended = () => {
-        if (playingRef.current) playSequence(idx + 1);
+        console.log(`[preview] ${idx + 1} ended`);
+        goNext();
       };
-      audio.onerror = () => {
-        if (playingRef.current) playSequence(idx + 1);
+      audio.onerror = (e) => {
+        console.warn(`[preview] ${idx + 1} error:`, e, 'url:', url);
+        goNext();
       };
-      try {
-        await audio.play();
-      } catch {
-        if (playingRef.current) playSequence(idx + 1);
-      }
+      audio.oncanplay = () => {
+        console.log(`[preview] ${idx + 1} canplay, duration=${audio.duration}s`);
+      };
+
+      audio.play().then(() => {
+        console.log(`[preview] ${idx + 1} play() resolved, duration=${audio.duration}`);
+        // 设置超时：如果 duration > 0 用 duration+3s，否则 15s
+        const dur = audio.duration;
+        const timeoutMs = dur > 0 && isFinite(dur) ? (dur + 3) * 1000 : 15000;
+        timeoutId = window.setTimeout(() => {
+          console.warn(`[preview] ${idx + 1} timeout after ${timeoutMs}ms, force next`);
+          goNext();
+        }, timeoutMs);
+      }).catch((err) => {
+        console.warn(`[preview] ${idx + 1} play() rejected:`, err);
+        goNext();
+      });
     };
 
     playSequence(0);
   };
 
   const stopPreview = () => {
+    playingRef.current = false;
     setPlaying(false);
     setPreviewIndex(-1);
     if (audioRef.current) {
