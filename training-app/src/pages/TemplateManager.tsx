@@ -403,13 +403,29 @@ function VoiceStatusRow({
         </div>
       </div>
       {showPersistWarn && (
-        <div className="flex items-start gap-1.5 rounded-lg bg-theme-warning/10 px-3 py-1.5 text-[10px] text-theme-warning">
+        <div className="flex items-start gap-1.5 rounded-lg bg-theme-warning/10 px-3 py-1.5 text-[10px] leading-snug text-theme-warning">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <div className="min-w-0 flex-1">
-            <div className="font-medium">语音已生成但<b>未保存到数据库</b>，刷新页面后需要重新生成</div>
-            {persistMsg && <div className="mt-0.5 break-all opacity-80">原因：{persistMsg}</div>}
+            <div className="font-medium">
+              语音已生成但<b>未保存到数据库</b>，刷新页面后需要重新生成
+            </div>
+            {persistMsg && (
+              <div className="mt-0.5 break-all whitespace-pre-wrap opacity-90">
+                <b>原因：</b>
+                {persistMsg.split('Current user templates').map((part, i) => (
+                  i === 0 ? part : (
+                    <span key={i}>
+                      <br /><b>DB 中当前用户的模板（前 20 条）：</b>{part.replace(/^[:\s]+/, '')}
+                    </span>
+                  )
+                ))}
+              </div>
+            )}
             <div className="mt-0.5 opacity-80">
-              建议检查 Render 环境变量是否已正确配置 SUPABASE_URL 和 SUPABASE_SERVICE_KEY
+              本地 template.id：<code className="rounded bg-theme-bg px-1 py-0.5">{template.id}</code>
+            </div>
+            <div className="mt-0.5 opacity-80">
+              建议：如果上方「DB 中模板」和「本地 template.id」对不上，说明模板数据未正确同步。可尝试先编辑保存一次模板（触发 POST/PATCH 更新到 DB）后再重新生成语音。
             </div>
           </div>
         </div>

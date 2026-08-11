@@ -55,12 +55,14 @@ router.post('/pregenerate', async (req, res) => {
       if (templateId) {
         const sb = getAdminSupabase();
         if (sb) {
-          const { data } = await sb
+          const { data, error } = await sb
             .from('templates')
             .select('id, audio_manifest')
             .eq('id', templateId)
             .maybeSingle();
-          if (data) {
+          if (error) {
+            console.warn('[tts] template lookup by id error:', templateId, error.message);
+          } else if (data) {
             storageTable = 'templates';
             storageId = data.id;
             const existing = data.audio_manifest as AudioManifest | null;
@@ -72,8 +74,13 @@ router.post('/pregenerate', async (req, res) => {
                 return;
               }
             }
+          } else {
+            // templateId 查不到 → 可能用户给的 templateId 不是 DB 的真实 id。
+            // 尝试 fallback：按当前 userId + template name 匹配一次
+            // drills 里没有 name 没法用 name 匹配，就稍后尝试直接用 templateId 写回
+            console.warn('[tts] template not found in DB by templateId=', templateId, 'userId=', req.auth!.userId);
           }
-          // 查不到也不报错——drills 已有，照样生成，只是不写回 DB
+          // 查不到也不报错——drills 已有，照样生成
         }
       } else if (planId) {
         const sb = getAdminSupabase();
@@ -179,7 +186,18 @@ router.post('/pregenerate', async (req, res) => {
     // 存到数据库
     let persisted = false;
     let persistError: string | undefined;
-    if (storageTable && storageId) {
+    let attemptedStorageId = storageId;
+    if (!storageId && templateId) {
+      // 尝试直接用前端传来的 templateId 写回一次（可能是 ID 格式不一致但 update 能匹配到）
+      attemptedStorageId = templateId;
+      storageTable = storageTable ?? 'templates';
+    }
+    if (!storageId && planId) {
+      attemptedStorageId = planId;
+      storageTable = storageTable ?? 'plans';
+    }
+
+    if (storageTable && attemptedStorageId) {
       try {
         const sb = getAdminSupabase();
         if (!sb) {
@@ -189,7 +207,7 @@ router.post('/pregenerate', async (req, res) => {
           const { error: updateError, status, statusText } = await sb
             .from(storageTable)
             .update({ audio_manifest: preResult.manifest } as any)
-            .eq('id', storageId)
+            .eq('id', attemptedStorageId)
             .select('id, audio_manifest')
             .maybeSingle();
           if (updateError) {
@@ -198,7 +216,7 @@ router.post('/pregenerate', async (req, res) => {
           } else {
             persisted = true;
             console.log(
-              `[tts] audio_manifest persisted to ${storageTable}/${storageId},`,
+              `[tts] audio_manifest persisted to ${storageTable}/${attemptedStorageId},`,
               `${preResult.successCount}/${preResult.totalTexts} audios`,
               `(status=${status} ${statusText || ''})`
             );
@@ -209,9 +227,31 @@ router.post('/pregenerate', async (req, res) => {
         console.error('[tts] write-back exception:', e);
       }
     } else {
-      persistError = storageTable
-        ? 'storageId missing (template/plan record not found in DB)'
-        : 'Neither templateId nor planId matched a DB record';
+      // 连 templateId/planId 都没传——把当前用户 DB 里的模板 ID 列出来帮助排查
+      try {
+        const sb = getAdminSupabase();
+        if (sb && req.auth?.userId) {
+          const { data: list } = await sb
+            .from('templates')
+            .select('id, name')
+            .eq('user_id', req.auth.userId)
+            .limit(20);
+          if (list && list.length > 0) {
+            const sample = list.map((t: any) => `${t.name}(${t.id})`).join('; ');
+            persistError =
+              `Neither templateId nor planId matched a DB record.` +
+              ` Current user templates in DB (first 20): ${sample}`;
+          } else {
+            persistError =
+              `Neither templateId nor planId matched a DB record.` +
+              ` Current user has 0 templates in DB — may need to create or sync templates first.`;
+          }
+        } else {
+          persistError = 'Neither templateId nor planId matched a DB record';
+        }
+      } catch {
+        persistError = 'Neither templateId nor planId matched a DB record';
+      }
       console.warn('[tts] skip write-back:', persistError);
     }
 
