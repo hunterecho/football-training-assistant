@@ -18,109 +18,35 @@ async function ensurePlanColumns() {
   if (!isSupabaseConfigured()) return;
   const sb = getSupabase();
   if (!sb) return;
-  try {
-    await sb.from('plans').select('source_plan_id').limit(1);
-    console.log('[schema] source_plan_id column exists');
-  } catch {
-    console.log('[schema] Adding missing columns to plans table...');
-    try {
-      const url = `${config.supabaseUrl}/rest/v1/rpc/execute_sql`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.supabaseServiceKey}`,
-          'apikey': config.supabaseServiceKey
-        },
-        body: JSON.stringify({
-          sql: `
-            alter table if exists public.plans
-              add column if not exists source_plan_id text;
-            alter table if exists public.plans
-              add column if not exists sharer_name text;
-            alter table if exists public.plans
-              add column if not exists drills jsonb default '[]';
-            alter table if exists public.training_records
-              alter column template_id drop not null;
-          `
-        })
-      });
-      if (response.ok) {
-        console.log('[schema] Columns added successfully');
-      } else {
-        const data = await response.json();
-        console.warn('[schema] Failed to add columns via RPC:', data);
-      }
-    } catch (e) {
-      console.warn('[schema] Failed to add columns:', e);
+
+  // 通用：检测列是否存在（supabase-js 不 throw，需检查 error 字段）
+  const checkColumn = async (table: string, column: string): Promise<boolean> => {
+    const { error } = await sb.from(table).select(column).limit(1);
+    if (error && /column .* does not exist|Could not find the .* column/i.test(error.message)) {
+      return false;
     }
-  }
-  
-  try {
-    await sb.from('training_records').select('rest_duration').limit(1);
-    console.log('[schema] rest_duration column exists');
-  } catch {
-    console.log('[schema] Adding rest_duration column to training_records table...');
-    try {
-      const url = `${config.supabaseUrl}/rest/v1/rpc/execute_sql`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.supabaseServiceKey}`,
-          'apikey': config.supabaseServiceKey
-        },
-        body: JSON.stringify({
-          sql: `
-            alter table if exists public.training_records
-              add column if not exists rest_duration integer default 0;
-          `
-        })
-      });
-      if (response.ok) {
-        console.log('[schema] rest_duration column added successfully');
-      } else {
-        const data = await response.json();
-        console.warn('[schema] Failed to add rest_duration column:', data);
-      }
-    } catch (e) {
-      console.warn('[schema] Failed to add rest_duration column:', e);
-    }
+    return true;
+  };
+
+  // plans.source_plan_id
+  if (!(await checkColumn('plans', 'source_plan_id'))) {
+    console.warn('[schema] plans.source_plan_id missing — please run migration SQL in Supabase SQL Editor');
   }
 
-  // 确保 audio_manifest 列存在
-  try {
-    await sb.from('templates').select('audio_manifest').limit(1);
-    console.log('[schema] templates.audio_manifest column exists');
-  } catch {
-    console.log('[schema] Adding audio_manifest columns...');
-    try {
-      const url = `${config.supabaseUrl}/rest/v1/rpc/execute_sql`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.supabaseServiceKey}`,
-          'apikey': config.supabaseServiceKey
-        },
-        body: JSON.stringify({
-          sql: `
-            alter table if exists public.templates
-              add column if not exists audio_manifest jsonb default '{}';
-            alter table if exists public.plans
-              add column if not exists audio_manifest jsonb default '{}';
-          `
-        })
-      });
-      if (response.ok) {
-        console.log('[schema] audio_manifest columns added successfully');
-      } else {
-        const data = await response.json();
-        console.warn('[schema] Failed to add audio_manifest columns:', data);
-      }
-    } catch (e) {
-      console.warn('[schema] Failed to add audio_manifest columns:', e);
-    }
+  // training_records.rest_duration
+  if (!(await checkColumn('training_records', 'rest_duration'))) {
+    console.warn('[schema] training_records.rest_duration missing — please run migration SQL in Supabase SQL Editor');
+  }
+
+  // templates.audio_manifest + plans.audio_manifest
+  const tplHasAm = await checkColumn('templates', 'audio_manifest');
+  const planHasAm = await checkColumn('plans', 'audio_manifest');
+  if (!tplHasAm || !planHasAm) {
+    console.warn('[schema] audio_manifest column(s) missing — please run in Supabase SQL Editor:');
+    console.warn('[schema]   alter table public.templates add column if not exists audio_manifest jsonb default \'{}\';');
+    console.warn('[schema]   alter table public.plans add column if not exists audio_manifest jsonb default \'{}\';');
+  } else {
+    console.log('[schema] audio_manifest columns OK');
   }
 }
 
