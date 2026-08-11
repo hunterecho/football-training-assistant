@@ -42,6 +42,13 @@ function AppContent() {
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
   const syncFromServer = useTrainingStore((s) => s.syncFromServer);
+  const synced = useTrainingStore((s) => s.synced);
+  const syncError = useTrainingStore((s) => s.syncError);
+  const templates = useTrainingStore((s) => s.templates);
+
+  // 首次启动时，等 syncFromServer 完成再渲染页面
+  // 如果已有缓存数据（templates 不为空），则先显示缓存数据，同步完成后自动更新
+  const showLoading = user && !synced && templates.length === 0 && !syncError;
 
   useEffect(() => {
     if (!user) return;
@@ -61,9 +68,25 @@ function AppContent() {
     };
   }, [user, syncFromServer]);
 
+  if (showLoading) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-theme-bg text-theme-text">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-theme-accent border-t-transparent" />
+        <div className="text-sm text-theme-text-muted">正在加载训练数据...</div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="mx-auto min-h-screen w-full">
+        {syncError && templates.length > 0 && (
+          <div className="mx-auto max-w-2xl px-4 pt-4">
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-700">
+              ⚠️ 数据同步失败（{syncError}），当前显示的是离线缓存数据
+            </div>
+          </div>
+        )}
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/share/:planId" element={<RequireAuth><ShareDetail /></RequireAuth>} />

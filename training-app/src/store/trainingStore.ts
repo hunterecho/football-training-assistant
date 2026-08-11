@@ -16,6 +16,7 @@ type TrainingStore = {
   activePlanId: string | null;
   activeRecordId: string | null;
   synced: boolean;
+  syncError: string | null;
   sessionPanelOpen: boolean;
   selectedPlanId: string | null;
   audioManifest: AudioManifest | null;
@@ -180,6 +181,7 @@ export const useTrainingStore = create<TrainingStore>()(
       activePlanId: null,
       activeRecordId: null,
       synced: false,
+      syncError: null,
       sessionPanelOpen: false,
       selectedPlanId: null,
       sharePlanId: null,
@@ -836,6 +838,8 @@ export const useTrainingStore = create<TrainingStore>()(
         
         syncPromise = (async () => {
           try {
+            // 标记正在同步
+            set({ syncError: null });
             const planUrl = effectiveSharePlanId ? `/plans?sharePlanId=${effectiveSharePlanId}` : '/plans';
             const [planRes, recordRes, templateRes] = await Promise.all([
               api.get<{ plans: unknown[] }>(planUrl),
@@ -854,7 +858,7 @@ export const useTrainingStore = create<TrainingStore>()(
               const list = templateRes.data.templates ?? [];
               set((s) => ({ ...s, templates: list.map(mapTemplateFromServer) }));
             }
-            set({ synced: true });
+            set({ synced: true, syncError: null });
             
             const current = get();
             const currentUserId = useAuthStore.getState().user?.id;
@@ -920,6 +924,10 @@ export const useTrainingStore = create<TrainingStore>()(
                 }
               }
             }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn('[sync] syncFromServer failed:', msg);
+            set({ syncError: msg });
           } finally {
             syncPromise = null;
           }
@@ -943,8 +951,12 @@ export const useTrainingStore = create<TrainingStore>()(
     }),
     {
       name: 'coach-train-v2:training',
+      // ⚠️ 关键：audioManifest 不持久化到 localStorage
+      // 原因：audioManifest 由某个设备生成后写入 DB，若 localStorage 缓存了旧值，
+      // 在其他设备上（或同设备刷新后）会使用过期的 audioMap 导致走兜底提示音
+      // 策略：模板/计划基本信息缓存（name/drills/结构），audioManifest 始终从服务端获取
       partialize: (state) => ({
-        templates: state.templates,
+        templates: state.templates.map((t) => ({ ...t, audioManifest: null })),
         plans: state.plans,
         records: state.records,
         activeTemplateId: state.activeTemplateId,

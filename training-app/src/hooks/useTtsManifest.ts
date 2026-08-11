@@ -51,6 +51,18 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
   const fallbackManifestRef = useRef(fallbackManifest);
   fallbackManifestRef.current = fallbackManifest;
 
+  // ⚠️ 关键：当 fallbackManifest 的 audioMap 内容变化时（如 syncFromServer 更新了 store），
+  // 强制清除 loadedKeyRef 让下次 effect 重新拉取 DB
+  // 这解决了跨设备场景：设备B打开 → syncFromServer 拉取最新 manifest → useTtsManifest 能获取到最新数据
+  const prevFallbackKeysRef = useRef<string>('');
+  const currentFallbackKeys = Object.keys(fallbackManifest?.audioMap ?? {}).sort().join(',');
+  useEffect(() => {
+    if (currentFallbackKeys !== prevFallbackKeysRef.current) {
+      prevFallbackKeysRef.current = currentFallbackKeys;
+      loadedKeyRef.current = '';
+    }
+  }, [currentFallbackKeys]);
+
   // 计算稳定的 key：templateId > planId
   // 加入 fallbackManifest 是否存在的标记，确保 fallback 可用时重新加载
   const hasFallback = !!(fallbackManifest && Object.keys(fallbackManifest.audioMap ?? {}).length > 0);
