@@ -176,20 +176,34 @@ router.post('/pregenerate', async (req, res) => {
     });
 
     // 存到数据库
+    let persisted = false;
     if (storageTable && storageId) {
-      const sb = getAdminSupabase();
-      if (sb) {
-        await sb
-          .from(storageTable)
-          .update({ audio_manifest: preResult.manifest })
-          .eq('id', storageId);
+      try {
+        const sb = getAdminSupabase();
+        if (sb) {
+          const { error: updateError } = await sb
+            .from(storageTable)
+            .update({ audio_manifest: preResult.manifest })
+            .eq('id', storageId);
+          if (updateError) {
+            console.error('[tts] write-back audio_manifest failed:', updateError.message);
+          } else {
+            persisted = true;
+            console.log(`[tts] audio_manifest persisted to ${storageTable}/${storageId}, ${preResult.successCount}/${preResult.totalTexts} audios`);
+          }
+        }
+      } catch (e) {
+        console.error('[tts] write-back exception:', e);
       }
+    } else {
+      console.warn('[tts] skip write-back: storageTable or storageId is null (template may not exist in DB yet)');
     }
 
     res.json({
       success: true,
       manifest: preResult.manifest,
       cached: false,
+      persisted,
       totalTexts: preResult.totalTexts,
       successCount: preResult.successCount,
       errors: preResult.errors as PregenerateErrorEntry[],
@@ -259,14 +273,16 @@ router.get('/manifest/:id', async (req, res) => {
       .from(table)
       .select('audio_manifest')
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
-    if (error || !data) {
-      res.status(404).json({ error: 'Not found' });
+    if (error) {
+      console.error('[tts] manifest query error:', error.message);
+      res.status(500).json({ error: error.message });
       return;
     }
 
-    res.json({ success: true, manifest: data.audio_manifest ?? null });
+    // 找不到记录时返回空 manifest（而非 404），让前端走兜底逻辑
+    res.json({ success: true, manifest: data?.audio_manifest ?? null });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
