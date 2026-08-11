@@ -19,6 +19,7 @@ import {
   Play,
   RefreshCw,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import { useTrainingStore } from '@/store/trainingStore';
 import { useAuthStore } from '@/store/authStore';
@@ -368,6 +369,8 @@ function TtsDebugPanel() {
   const [testErrors, setTestErrors] = useState<PregenerateErrorEntry[]>([]);
   const [clearing, setClearing] = useState(false);
   const [clearResult, setClearResult] = useState<string>('');
+  const [resettingVoice, setResettingVoice] = useState(false);
+  const [resetVoiceResult, setResetVoiceResult] = useState<string>('');
   const [matchResult, setMatchResult] = useState<string>('');
   const [matchMissing, setMatchMissing] = useState<string[]>([]);
   const [matchTesting, setMatchTesting] = useState(false);
@@ -414,6 +417,53 @@ function TtsDebugPanel() {
       setClearResult(`清除失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setClearing(false);
+    }
+  };
+
+  // 一键清空所有语音数据（架构升级后清理脏数据）
+  const handleResetAllVoice = async () => {
+    if (!token) {
+      setResetVoiceResult('未登录');
+      return;
+    }
+    const ok = window.confirm(
+      '确定要清空所有语音数据吗？\n\n' +
+      '这将：\n' +
+      '1. 清空所有模板的 audio_manifest\n' +
+      '2. 清空所有计划的 audio_manifest\n' +
+      '3. 清除系统级语音缓存\n' +
+      '4. 删除 Storage 中所有已生成的 MP3 文件\n\n' +
+      '清空后需要重新到模板页生成语音。此操作不可撤销。'
+    );
+    if (!ok) return;
+
+    setResettingVoice(true);
+    setResetVoiceResult('正在清空...');
+    try {
+      const res = await api.post<{ success: boolean; results?: Record<string, unknown>; error?: string }>(
+        '/tts/admin/reset-all',
+        { clearStorage: true }
+      );
+      if (res.error || !res.data?.success) {
+        setResetVoiceResult(`清空失败: ${res.error || res.data?.error || '未知错误'}`);
+      } else {
+        const r = res.data.results || {};
+        const lines: string[] = ['✅ 清空完成'];
+        if (r.templates) lines.push(`templates: ${(r.templates as any).error ?? 'OK'}`);
+        if (r.plans) lines.push(`plans: ${(r.plans as any).error ?? 'OK'}`);
+        if (r.systemSettings) lines.push(`system_settings: ${(r.systemSettings as any).error ?? 'OK'}`);
+        if (r.storage) {
+          const s = r.storage as any;
+          lines.push(`storage: ${s.error ? s.error : `${s.removed ?? 0} 个文件已删除`}`);
+        }
+        setResetVoiceResult(lines.join('\n'));
+        // 同步清掉本地 audioManifest
+        setAudioManifest(null);
+      }
+    } catch (err) {
+      setResetVoiceResult(`清空失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setResettingVoice(false);
     }
   };
 
@@ -527,6 +577,26 @@ function TtsDebugPanel() {
         )}
         <p className="text-[10px] text-theme-text-muted">
           清除后请刷新页面（微信内可关闭页面重新打开）
+        </p>
+      </div>
+
+      {/* 一键清空所有语音数据（架构升级后清理脏数据） */}
+      <div className="space-y-1">
+        <button
+          onClick={handleResetAllVoice}
+          disabled={resettingVoice || !token}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-theme-danger/30 bg-theme-danger/10 px-3 py-2 text-sm text-theme-danger hover:bg-theme-danger/20 disabled:opacity-50"
+        >
+          {resettingVoice ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+          {resettingVoice ? '清空中...' : '清空所有语音数据（DB + Storage）'}
+        </button>
+        {resetVoiceResult && (
+          <div className="whitespace-pre-wrap rounded bg-theme-bg-card p-2 text-xs text-theme-text-muted">
+            {resetVoiceResult}
+          </div>
+        )}
+        <p className="text-[10px] text-theme-text-muted">
+          清空 templates/plans 的 audio_manifest + system 缓存 + Storage MP3 文件，需重新生成
         </p>
       </div>
 
