@@ -29,7 +29,12 @@ export function unlockAudio(): void {
 
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (AudioCtx) {
+      // 创建并保持 AudioContext 活跃，不关闭
+      // 微信内 closed 的 AudioContext 无法用于后续播放
       const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') {
+        void ctx.resume().catch(() => undefined);
+      }
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       gain.gain.value = 0;
@@ -37,7 +42,7 @@ export function unlockAudio(): void {
       gain.connect(ctx.destination);
       osc.start(0);
       osc.stop(0.01);
-      ctx.close().catch(() => undefined);
+      // 不调用 ctx.close()，保持 AudioContext 活跃
     }
 
     if ('speechSynthesis' in window) {

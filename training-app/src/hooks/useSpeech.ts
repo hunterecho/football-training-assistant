@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isWechatBrowser, isWechatIOS, unlockAudio } from '@/utils/wechat';
-import { playAudioUrl, stopAllAudio, preloadAudio } from '@/utils/audioPlayer';
+import { preloadAudio } from '@/utils/audioPlayer';
 import type { AudioManifest } from '@/types';
 
 type UseSpeechOptions = {
@@ -19,6 +19,36 @@ type QueueItem = {
 
 type FallbackBeepType = 'start' | 'end' | 'countdown' | 'alert';
 
+/**
+ * 规范化文本用于 audioMap 查找：
+ * 1. 移除所有空白字符
+ * 2. 转为小写
+ * 3. 解码 HTML 实体（&amp; → & 等）
+ * 4. 统一全角/半角标点
+ */
+function normalizeText(s: string): string {
+  return s
+    .replace(/\s+/g, '')
+    .toLowerCase()
+    // 解码常见 HTML 实体
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    // 统一全角标点为半角
+    .replace(/\u3000/g, ' ')
+    .replace(/，/g, ',')
+    .replace(/。/g, '.')
+    .replace(/：/g, ':')
+    .replace(/；/g, ';')
+    .replace(/！/g, '!')
+    .replace(/？/g, '?')
+    .replace(/（/g, '(')
+    .replace(/）/g, ')');
+}
+
 export function useSpeech(options: UseSpeechOptions) {
   const { enabled, rate = 1.2, volume = 1, voiceIndex = 0 } = options;
   const supported = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -32,8 +62,10 @@ export function useSpeech(options: UseSpeechOptions) {
   const isProcessingRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const fallbackBeepRef = useRef(false);
-  // 预生成音频映射: text -> url
+  // 预生成音频映射: normalizedText -> url
   const audioMapRef = useRef<Map<string, string>>(new Map());
+  // 跟踪当前正在播放的 Audio 实例，用于 clear/stop 时停止
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [lastError, setLastError] = useState<string>('');
   const [speaking, setSpeaking] = useState(false);
@@ -75,7 +107,7 @@ export function useSpeech(options: UseSpeechOptions) {
 
   const ensureAudioCtx = useCallback((): AudioContext | null => {
     if (typeof window === 'undefined') return null;
-    if (!audioCtxRef.current) {
+    if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
       const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) return null;
       audioCtxRef.current = new Ctor();
@@ -97,8 +129,6 @@ export function useSpeech(options: UseSpeechOptions) {
     gain.connect(ctx.destination);
     gain.gain.setValueAtTime(0, now);
 
-    let freq = 880;
-    let duration = 0.15;
     let pattern: { freq: number; dur: number; gap?: number }[] = [];
 
     switch (type) {
@@ -177,6 +207,11 @@ export function useSpeech(options: UseSpeechOptions) {
     if (!enabled && supported) {
       queueRef.current = [];
       try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+      // 停止当前播放的音频
+      if (currentAudioRef.current) {
+        try { currentAudioRef.current.pause(); currentAudioRef.current.src = ''; } catch { /* noop */ }
+        currentAudioRef.current = null;
+      }
       speakingRef.current = false;
       setSpeaking(false);
       isProcessingRef.current = false;
@@ -191,8 +226,22 @@ export function useSpeech(options: UseSpeechOptions) {
     return list[Math.min(voiceIndexRef.current, list.length - 1)] ?? null;
   }, []);
 
+  /**
+   * 停止当前正在播放的预生成音频
+   * 在切换环节、clear、stop 时调用
+   */
+  const stopCurrentAudio = useCallback(() => {
+    if (currentAudioRef.current) {
+      try {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.src = '';
+      } catch { /* noop */ }
+      currentAudioRef.current = null;
+    }
+  }, []);
+
   // 处理预生成音频文件的串行播放
-  // 使用独立的 Audio 实例（不通过 preloadedCache），避免并发时互相重置
+  // 使用独立的 Audio 实例，通过 currentAudioRef 跟踪以便停止
   const playAudioItem = useCallback((url: string): Promise<void> => {
     return new Promise((resolve) => {
       if (!url) {
@@ -203,10 +252,15 @@ export function useSpeech(options: UseSpeechOptions) {
       // 确保 AudioContext 已激活（微信解锁）
       ensureAudioCtx();
 
-      // 使用新的 Audio 实例，避免 preloadedCache 中的实例被并发重置
-      const audio = new Audio(url);
+      // 停止前一个音频
+      stopCurrentAudio();
+
+      // 使用新的 Audio 实例
+      const audio = new Audio();
+      audio.src = url;
       audio.preload = 'auto';
       audio.volume = Math.max(0, Math.min(1, volumeRef.current));
+      currentAudioRef.current = audio;
 
       let resolved = false;
       const finish = () => {
@@ -214,6 +268,9 @@ export function useSpeech(options: UseSpeechOptions) {
         resolved = true;
         audio.removeEventListener('ended', finish);
         audio.removeEventListener('error', finish);
+        if (currentAudioRef.current === audio) {
+          currentAudioRef.current = null;
+        }
         resolve();
       };
 
@@ -223,15 +280,21 @@ export function useSpeech(options: UseSpeechOptions) {
       const playPromise = audio.play();
       if (playPromise && typeof playPromise.catch === 'function') {
         playPromise.catch(() => {
-          // 播放失败（可能未解锁），静默处理
-          finish();
+          // 播放失败（可能未解锁），尝试重新解锁并重试一次
+          ensureAudioCtx();
+          const retryPromise = audio.play();
+          if (retryPromise && typeof retryPromise.catch === 'function') {
+            retryPromise.catch(() => finish());
+          } else {
+            finish();
+          }
         });
       }
 
       // 超时保护：最长 60 秒后自动 resolve
       window.setTimeout(() => finish(), 60000);
     });
-  }, [ensureAudioCtx]);
+  }, [ensureAudioCtx, stopCurrentAudio]);
 
   // 统一的队列处理：先处理预生成音频，再处理 speechSynthesis
   const processQueue = useCallback(async () => {
@@ -340,9 +403,6 @@ export function useSpeech(options: UseSpeechOptions) {
     }
   }, [supported, pickVoice, playAudioItem]);
 
-  // 规范化文本用于 audioMap 查找：移除所有空白字符
-  const normalizeText = (s: string): string => s.replace(/\s+/g, '').toLowerCase();
-
   // 设置预生成的音频清单
   const setAudioManifest = useCallback((manifest: AudioManifest | null) => {
     const map = new Map<string, string>();
@@ -367,7 +427,7 @@ export function useSpeech(options: UseSpeechOptions) {
       if (!enabledRef.current) return;
       if (!text) return;
 
-      // 查找预生成音频
+      // 查找预生成音频：先原始 key，再规范化 key
       let audioUrl = audioMapRef.current.get(text);
       if (!audioUrl) {
         audioUrl = audioMapRef.current.get(normalizeText(text));
@@ -375,9 +435,9 @@ export function useSpeech(options: UseSpeechOptions) {
 
       if (audioUrl) {
         // 预生成音频加入队列，串行播放
-        // 高优先级：清空已有队列
+        // 高优先级：清空已有队列，立即播放
         if (priority === 'high') {
-          stopAllAudio();
+          stopCurrentAudio();
           if (supported) {
             try { window.speechSynthesis.cancel(); } catch { /* noop */ }
           }
@@ -442,7 +502,7 @@ export function useSpeech(options: UseSpeechOptions) {
         processQueue();
       }
     },
-    [supported, processQueue, playFallbackBeep, vibrate]
+    [supported, processQueue, playFallbackBeep, vibrate, stopCurrentAudio]
   );
 
   const speak = useCallback(
@@ -457,36 +517,34 @@ export function useSpeech(options: UseSpeechOptions) {
     if (supported) {
       try { window.speechSynthesis.cancel(); } catch { /* noop */ }
     }
-    stopAllAudio();
+    stopCurrentAudio();
     speakingRef.current = false;
     setSpeaking(false);
     isProcessingRef.current = false;
-  }, [supported]);
+  }, [supported, stopCurrentAudio]);
 
   const stop = useCallback(() => {
     queueRef.current = [];
     if (supported) {
       try { window.speechSynthesis.cancel(); } catch { /* noop */ }
     }
-    stopAllAudio();
+    stopCurrentAudio();
     speakingRef.current = false;
     setSpeaking(false);
     isProcessingRef.current = false;
-  }, [supported]);
+  }, [supported, stopCurrentAudio]);
 
   const pause = useCallback(() => {
     if (supported) {
       try { window.speechSynthesis.pause(); } catch { /* noop */ }
     }
-    // 暂停预生成音频
-    stopAllAudio();
+    stopCurrentAudio();
     speakingRef.current = false;
-  }, [supported]);
+  }, [supported, stopCurrentAudio]);
 
   const resume = useCallback(() => {
     if (enabledRef.current && supported) {
       try { window.speechSynthesis.resume(); } catch { /* noop */ }
-      // 恢复后检查队列：如果 speechSynthesis 没在播放但队列有待播放项，继续处理
       window.setTimeout(() => {
         if (!enabledRef.current) return;
         if (!isProcessingRef.current && queueRef.current.length > 0) {

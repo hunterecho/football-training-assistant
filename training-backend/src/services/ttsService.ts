@@ -231,18 +231,21 @@ export function extractTextsFromDrills(
 
   for (const drill of drills) {
     if (drill.title) {
-      texts.push(drill.title);
+      const title = drill.title.trim();
+      texts.push(title);
       const durationStr = drill.duration ? formatDurationChinese(drill.duration) : '';
-      texts.push(`现在开始 ${drill.title}，时长 ${durationStr}`);
-      texts.push(`${drill.title} 完成`);
+      texts.push(`现在开始 ${title}，时长 ${durationStr}`);
+      texts.push(`${title} 完成`);
     }
     if (drill.summary) {
-      texts.push(drill.summary);
+      const summary = drill.summary.trim();
+      if (summary) texts.push(summary);
     }
     if (drill.cues) {
       for (const cue of drill.cues) {
         if (cue.text) {
-          texts.push(cue.text);
+          const t = cue.text.trim();
+          if (t) texts.push(t);
         }
       }
     }

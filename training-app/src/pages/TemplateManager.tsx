@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useTrainingStore } from '@/store/trainingStore';
 import type { Template, Drill } from '@/types';
 import { uid, formatDuration } from '@/utils/duration';
+import { formatDurationChinese } from '@/utils/duration';
 import {
   Plus,
   Trash2,
@@ -311,8 +312,39 @@ function VoiceStatusRow({
 
   const handlePreview = () => {
     if (!template.audioManifest?.audioMap) return;
-    const entries = Object.entries(template.audioManifest.audioMap);
-    if (entries.length === 0) return;
+    const audioMap = template.audioManifest.audioMap;
+
+    // 按模板环节顺序构建播放列表
+    // 与后端 extractTextsFromDrills 保持一致的顺序
+    const orderedTexts: string[] = [];
+    for (const drill of template.drills) {
+      if (drill.title) {
+        const durationStr = drill.duration ? formatDurationChinese(drill.duration) : '';
+        orderedTexts.push(`现在开始 ${drill.title}，时长 ${durationStr}`);
+      }
+      if (drill.summary) {
+        orderedTexts.push(drill.summary);
+      }
+      for (const cue of drill.cues) {
+        if (cue.text) {
+          orderedTexts.push(cue.text);
+        }
+      }
+      if (drill.title) {
+        orderedTexts.push(`${drill.title} 完成`);
+      }
+    }
+
+    // 按顺序匹配 audioMap 中的 URL
+    const playlist: { text: string; url: string }[] = [];
+    for (const text of orderedTexts) {
+      const entry = audioMap[text];
+      if (entry?.url) {
+        playlist.push({ text, url: entry.url });
+      }
+    }
+
+    if (playlist.length === 0) return;
 
     if (playing) {
       stopPreview();
@@ -325,7 +357,7 @@ function VoiceStatusRow({
     playingRef.current = true;
 
     const playSequence = (idx: number) => {
-      if (idx >= entries.length) {
+      if (idx >= playlist.length) {
         setPlaying(false);
         setPreviewIndex(-1);
         playingRef.current = false;
@@ -333,15 +365,9 @@ function VoiceStatusRow({
       }
       if (!playingRef.current) return; // 已停止
 
-      const [text, entry] = entries[idx];
+      const { text, url } = playlist[idx];
       setPreviewIndex(idx);
-      const url = entry?.url;
-      console.log(`[preview] ${idx + 1}/${entries.length} text="${text}" url=${url?.slice(0, 80)}...`);
-      if (!url) {
-        console.warn('[preview] no url, skip');
-        playSequence(idx + 1);
-        return;
-      }
+      console.log(`[preview] ${idx + 1}/${playlist.length} text="${text}" url=${url?.slice(0, 80)}...`);
 
       // 超时保护：15 秒后自动跳到下一条
       let timeoutId: number | undefined;
@@ -368,13 +394,9 @@ function VoiceStatusRow({
         console.warn(`[preview] ${idx + 1} error:`, e, 'url:', url);
         goNext();
       };
-      audio.oncanplay = () => {
-        console.log(`[preview] ${idx + 1} canplay, duration=${audio.duration}s`);
-      };
 
       audio.play().then(() => {
         console.log(`[preview] ${idx + 1} play() resolved, duration=${audio.duration}`);
-        // 设置超时：如果 duration > 0 用 duration+3s，否则 15s
         const dur = audio.duration;
         const timeoutMs = dur > 0 && isFinite(dur) ? (dur + 3) * 1000 : 15000;
         timeoutId = window.setTimeout(() => {

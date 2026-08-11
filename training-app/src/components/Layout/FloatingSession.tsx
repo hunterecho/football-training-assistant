@@ -192,6 +192,20 @@ export function FloatingSession() {
   const firedRestEndRef = useRef<boolean>(false);
   const lastRestSecRef = useRef<number>(0);
 
+  // 重置语音跟踪 refs，使下一个 useEffect 周期重新播报 intro
+  const resetSpeechTracking = useCallback(() => {
+    startedDrillRef.current = '';
+    firedIntroRef.current = false;
+    firedCueKeysRef.current = new Set();
+    firedMinuteKeysRef.current = new Set();
+    firedOneMinLeftRef.current = false;
+    lastEndedRef.current = false;
+    lastFiveSecRef.current = 0;
+    firedRestStartRef.current = false;
+    firedRestEndRef.current = false;
+    lastRestSecRef.current = 0;
+  }, []);
+
   useWakeLock(settings.keepScreenAwake && session.status === 'running');
 
   useEffect(() => {
@@ -652,7 +666,7 @@ export function FloatingSession() {
 
                   <div className="mx-auto flex max-w-md items-center justify-center gap-3">
                     <button
-                      onClick={() => { speech.clear(); prevDrillRef.current(); }}
+                      onClick={() => { speech.clear(); prevDrillRef.current(); resetSpeechTracking(); }}
                       className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
                     >
                       <SkipBack className="h-5 w-5" />
@@ -676,7 +690,7 @@ export function FloatingSession() {
                       )}
                     </button>
                     <button
-                      onClick={() => { speech.clear(); finishRestRef.current(); }}
+                      onClick={() => { speech.clear(); finishRestRef.current(); resetSpeechTracking(); }}
                       className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
                     >
                       <SkipForward className="h-5 w-5" />
@@ -723,7 +737,7 @@ export function FloatingSession() {
                   {/* Controls */}
                   <div className="mx-auto flex max-w-md items-center justify-center gap-3">
                     <button
-                      onClick={() => { speech.clear(); prevDrillRef.current(); }}
+                      onClick={() => { speech.clear(); prevDrillRef.current(); resetSpeechTracking(); }}
                       className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
                     >
                       <SkipBack className="h-5 w-5" />
@@ -739,6 +753,7 @@ export function FloatingSession() {
                         } else if (session.status === 'finished') {
                           speech.clear();
                           nextDrillRef.current();
+                          resetSpeechTracking();
                         }
                       }}
                       className="flex h-16 w-16 items-center justify-center rounded-full bg-theme-accent text-white shadow-lg shadow-theme-accent/30 hover:bg-theme-accent-hover"
@@ -750,7 +765,7 @@ export function FloatingSession() {
                       )}
                     </button>
                     <button
-                      onClick={() => { speech.clear(); nextDrillRef.current(); }}
+                      onClick={() => { speech.clear(); nextDrillRef.current(); resetSpeechTracking(); }}
                       className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
                     >
                       <SkipForward className="h-5 w-5" />
@@ -925,6 +940,7 @@ export function FloatingSession() {
                       onClick={() => {
                         speech.clear();
                         resetCurrentDrill();
+                        resetSpeechTracking();
                       }}
                       className="flex items-center gap-1.5 text-xs text-theme-text-muted hover:text-theme-text-secondary"
                     >
