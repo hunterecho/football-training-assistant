@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useSpeech } from '@/hooks/useSpeech';
 import { useBeep } from '@/hooks/useBeep';
 import { useWakeLock } from '@/hooks/useWakeLock';
+import { useTtsManifest } from '@/hooks/useTtsManifest';
 import { formatDuration, formatDurationChinese } from '@/utils/duration';
 import {
   Play,
@@ -33,7 +34,9 @@ export function FloatingSession() {
   const records = useTrainingStore((s) => s.records);
   const activeRecordId = useTrainingStore((s) => s.activeRecordId);
   const activePlanId = useTrainingStore((s) => s.activePlanId);
+  const templates = useTrainingStore((s) => s.templates);
   const plans = useTrainingStore((s) => s.plans);
+  const activeId = useTrainingStore((s) => s.activeTemplateId);
   const tickRaw = useTrainingStore((s) => s.tick);
   const nextDrillRaw = useTrainingStore((s) => s.nextDrill);
   const prevDrillRaw = useTrainingStore((s) => s.prevDrill);
@@ -55,7 +58,6 @@ export function FloatingSession() {
 
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.update);
-  const audioManifest = useTrainingStore((s) => s.audioManifest);
   const [onlyTimerMode, setOnlyTimerMode] = useState(() => {
     const saved = localStorage.getItem('training_onlyTimerMode');
     return saved ? JSON.parse(saved) : false;
@@ -69,10 +71,57 @@ export function FloatingSession() {
   });
   const { beep } = useBeep();
 
-  // 从 store 同步预生成的音频清单到 speech
+  // 模板查找：与 SessionTimer 保持一致的逻辑
+  const template = useMemo(() => {
+    // 1. 优先用 activeRecordId 关联的模板
+    if (activeRecordId) {
+      const activeRecord = records.find((r) => r.id === activeRecordId);
+      if (activeRecord?.templateId) {
+        const tpl = templates.find((t) => t.id === activeRecord.templateId);
+        if (tpl) return tpl;
+      }
+    }
+    // 2. 用 activeTemplateId 直接查找模板
+    if (activeId) {
+      const tpl = templates.find((t) => t.id === activeId);
+      if (tpl) return tpl;
+    }
+    // 3. 通过 activePlanId 反向查找模板
+    if (activePlanId) {
+      const plan = plans.find((p) => p.id === activePlanId);
+      if (plan?.templateId) {
+        const tpl = templates.find((t) => t.id === plan.templateId);
+        if (tpl) return tpl;
+      }
+    }
+    return null;
+  }, [templates, activeId, activeRecordId, records, plans, activePlanId]);
+
+  // ⚠️ 关键修复：接入 useTtsManifest 架构，替换旧的 speech.setAudioManifest(audioManifest)
+  // 旧代码从全局 store 读取 audioManifest（始终为 null），导致 audioMap 为空
+  const { manifestReady } = useTtsManifest({
+    speech,
+    templateId: template?.id,
+    planId: activePlanId ?? undefined,
+    enabled: effectiveSpeechEnabled,
+    fallbackManifest: template?.audioManifest ?? undefined,
+  });
+  const manifestReadyRef = useRef(false);
+  manifestReadyRef.current = manifestReady;
+
+  // 诊断日志
   useEffect(() => {
-    speech.setAudioManifest(audioManifest);
-  }, [audioManifest, speech]);
+    console.log('[FloatingSession] template lookup:', {
+      found: !!template,
+      templateId: template?.id,
+      hasAudioManifest: !!template?.audioManifest,
+      audioMapCount: Object.keys(template?.audioManifest?.audioMap ?? {}).length,
+      activeId,
+      activePlanId,
+      activeRecordId,
+      manifestReady,
+    });
+  }, [template, activeId, activePlanId, activeRecordId, manifestReady]);
 
   const sessionDrills = useMemo((): Drill[] => {
     if (activeRecordId) {
@@ -235,6 +284,30 @@ export function FloatingSession() {
     }
 
     if (session.status === 'running' && session.remaining >= drill.duration - 0.05 && !firedIntroRef.current) {
+      // 如果语音启用但 manifest 还没加载好，延迟播报（最多等 5 秒）
+      if (effectiveSpeechEnabled && !manifestReadyRef.current) {
+        const timer = window.setTimeout(() => {
+          if (!firedIntroRef.current) {
+            firedIntroRef.current = true;
+            const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
+            speech.enqueue(intro);
+            beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
+            if (!onlyTimerMode) {
+              drill.cues
+                .filter((c) => c.trigger === 'start')
+                .forEach((c) => {
+                  const key = `start:${c.id}`;
+                  if (!firedCueKeysRef.current.has(key)) {
+                    firedCueKeysRef.current.add(key);
+                    speech.enqueue(c.text);
+                  }
+                });
+            }
+          }
+        }, 5000);
+        return () => window.clearTimeout(timer);
+      }
+
       firedIntroRef.current = true;
       const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
       speech.enqueue(intro);

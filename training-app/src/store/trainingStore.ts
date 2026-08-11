@@ -550,8 +550,12 @@ export const useTrainingStore = create<TrainingStore>()(
         const drill = drills[startIndex];
         if (!drill) return;
         const effectiveRestDuration = restDuration ?? tpl?.restDuration ?? plan?.restDuration ?? 0;
+        // ⚠️ 关键：如果 templateId 实际上是 plan ID，需要同时设置 activePlanId
+        // 这样 useTtsManifest 才能通过 planId 查找模板语音
+        const isPlanId = !!plan && !tpl;
         set({
           activeTemplateId: templateId,
+          activePlanId: isPlanId ? templateId : null,
           session: {
             templateId,
             drillIndex: startIndex,
