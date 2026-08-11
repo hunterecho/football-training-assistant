@@ -855,8 +855,29 @@ export const useTrainingStore = create<TrainingStore>()(
               set((s) => ({ ...s, records: list.map(mapRecordFromServer) }));
             }
             if (templateRes.data) {
-              const list = templateRes.data.templates ?? [];
-              set((s) => ({ ...s, templates: list.map(mapTemplateFromServer) }));
+              const list = (templateRes.data.templates ?? []) as Parameters<typeof mapTemplateFromServer>[0][];
+              const currentTemplates = get().templates;
+              const currentMap = new Map(currentTemplates.map((t) => [t.id, t]));
+              set((s) => ({
+                ...s,
+                templates: list.map((t) => {
+                  const mapped = mapTemplateFromServer(t);
+                  // ⚠️ 关键：如果 DB 中 audio_manifest 为空，但内存中有值（用户刚生成语音），
+                  // 保留内存中的 audioManifest，避免被 syncFromServer 覆盖为空
+                  const dbHasManifest = mapped.audioManifest &&
+                    Object.keys(mapped.audioManifest.audioMap ?? {}).length > 0;
+                  if (!dbHasManifest) {
+                    const memTpl = currentMap.get(mapped.id);
+                    if (memTpl?.audioManifest &&
+                      Object.keys(memTpl.audioManifest.audioMap ?? {}).length > 0) {
+                      console.log('[sync] 保留内存 audioManifest for template:', mapped.id,
+                        '(DB 中为空，内存中有', Object.keys(memTpl.audioManifest.audioMap).length, '条)');
+                      return { ...mapped, audioManifest: memTpl.audioManifest };
+                    }
+                  }
+                  return mapped;
+                }),
+              }));
             }
             set({ synced: true, syncError: null });
             

@@ -202,9 +202,16 @@ export async function ensureSystemManifest(userId: string): Promise<AudioManifes
   }
   const texts = getSystemTexts();
   const result = await pregenerateAudios(texts, userId, { voice: DEFAULT_VOICE, rate: DEFAULT_RATE });
-  cachedSystemManifest = result.manifest;
-  console.log(`[tts] system manifest ready: ${Object.keys(result.manifest.audioMap).length}/${texts.length} texts`);
-  return cachedSystemManifest;
+  // ⚠️ 关键：只有生成成功（audioMap 非空）才缓存
+  // 之前如果 TTS 服务不可用导致全部失败，空 manifest 被缓存，后续请求永远返回空
+  const audioCount = Object.keys(result.manifest.audioMap).length;
+  if (audioCount > 0) {
+    cachedSystemManifest = result.manifest;
+    console.log(`[tts] system manifest ready: ${audioCount}/${texts.length} texts`);
+  } else {
+    console.warn(`[tts] system manifest 生成失败 (0/${texts.length})，不缓存，下次重试`);
+  }
+  return result.manifest;
 }
 
 /**

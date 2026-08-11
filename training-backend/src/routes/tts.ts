@@ -204,7 +204,7 @@ router.post('/pregenerate', async (req, res) => {
           persistError =
             'Database not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY missing)';
         } else {
-          const { error: updateError, status, statusText } = await sb
+          const { data: updateData, error: updateError, status, statusText } = await sb
             .from(storageTable)
             .update({ audio_manifest: preResult.manifest } as any)
             .eq('id', attemptedStorageId)
@@ -213,6 +213,10 @@ router.post('/pregenerate', async (req, res) => {
           if (updateError) {
             persistError = updateError.message;
             console.error('[tts] write-back audio_manifest failed:', updateError);
+          } else if (!updateData) {
+            // update 没有匹配到任何行——ID 不存在于 DB
+            persistError = `Template/Plan ${attemptedStorageId} 不存在于 DB（update 匹配 0 行），音频已生成但未持久化`;
+            console.warn('[tts] write-back matched 0 rows:', storageTable, attemptedStorageId);
           } else {
             persisted = true;
             console.log(

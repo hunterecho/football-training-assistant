@@ -94,9 +94,25 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
 
     Promise.all([
       api.get<{ success: boolean; manifest: AudioManifest | null }>(`/tts/manifest/${id}?type=${type}`)
-        .then((res) => res.data?.manifest ?? null),
+        .then((res) => {
+          if (res.error) {
+            console.warn('[tts] GET /tts/manifest/:id 返回错误:', res.error);
+            return null;
+          }
+          const m = res.data?.manifest ?? null;
+          console.log('[tts] DB manifest audioMap 条目数:', Object.keys(m?.audioMap ?? {}).length);
+          return m;
+        }),
       api.get<{ success: boolean; manifest: AudioManifest }>('/tts/system')
-        .then((res) => res.data?.manifest ?? { voice: '', rate: '', generatedAt: '', audioMap: {} }),
+        .then((res) => {
+          if (res.error) {
+            console.warn('[tts] GET /tts/system 返回错误:', res.error);
+            return { voice: '', rate: '', generatedAt: '', audioMap: {} } as AudioManifest;
+          }
+          const m = res.data?.manifest ?? { voice: '', rate: '', generatedAt: '', audioMap: {} } as AudioManifest;
+          console.log('[tts] system manifest audioMap 条目数:', Object.keys(m.audioMap ?? {}).length);
+          return m;
+        }),
     ])
       .then(([templateManifest, systemManifest]) => {
         // DB 拉不到模板 manifest 时，尝试用内存中的 fallback（store 里的）
