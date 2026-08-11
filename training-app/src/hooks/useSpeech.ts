@@ -284,6 +284,7 @@ export function useSpeech(options: UseSpeechOptions) {
       }
     }
     audioMapRef.current = map;
+    console.log('[speech] setAudioManifest: audioMap 条目数 =', map.size, '(manifest audioMap keys =', Object.keys(manifest?.audioMap ?? {}).length, ')');
   }, []);
 
   const enqueue = useCallback(
@@ -298,6 +299,7 @@ export function useSpeech(options: UseSpeechOptions) {
         audioUrl = audioMapRef.current.get(normalizeText(text));
       }
       if (audioUrl) {
+        console.log('[speech] ✅ 播放预生成音频:', text.slice(0, 40));
         if (priority === 'high') {
           // 取消当前所有播放
           stopAllAudio();
@@ -315,6 +317,9 @@ export function useSpeech(options: UseSpeechOptions) {
         });
         return;
       }
+
+      // audioMap 中找不到该文本——记录便于排查 key 不匹配问题
+      console.warn('[speech] ❌ audioMap 未命中，走兜底:', text.slice(0, 40), '| audioMap.size=', audioMapRef.current.size);
 
       if (fallbackBeepRef.current || !supported) {
         const lower = text.toLowerCase();

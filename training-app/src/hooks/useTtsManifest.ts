@@ -42,6 +42,15 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
   const [templateAudioMissing, setTemplateAudioMissing] = useState(false);
   const loadedKeyRef = useRef<string>('');
 
+  // ⚠️ 关键修复：用 ref 保存 speech.setAudioManifest 和 fallbackManifest
+  // 避免它们作为 useEffect 依赖时，因引用变化导致 effect 被 cleanup（cancelled=true）
+  // 之前 speech 对象每次渲染都是新引用（useFallback/speaking 等内部 state 变化引起），
+  // 导致 Promise.all 尚未 resolve 就被 cancel，setAudioManifest 永远不被调用 → audioMap 为空 → 走兜底
+  const setAudioManifestRef = useRef(speech.setAudioManifest);
+  setAudioManifestRef.current = speech.setAudioManifest;
+  const fallbackManifestRef = useRef(fallbackManifest);
+  fallbackManifestRef.current = fallbackManifest;
+
   // 计算稳定的 key：templateId > planId
   // 加入 fallbackManifest 是否存在的标记，确保 fallback 可用时重新加载
   const hasFallback = !!(fallbackManifest && Object.keys(fallbackManifest.audioMap ?? {}).length > 0);
@@ -63,10 +72,13 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
     setManifestError('');
     setTemplateAudioMissing(false);
 
-    let cancelled = false;
-
+    // 不再使用 cancelled 标志——因为 effect 不会被 speech 引用变化中断了
+    // 依赖数组里只有稳定值（enabled/token/key/fallbackKey），Promise resolve 后一定会 setAudioManifest
     const type = templateId ? 'template' : 'plan';
     const id = (templateId || planId)!;
+    const currentFallback = fallbackManifestRef.current;
+
+    console.log('[tts] 开始加载 manifest:', { id, type, hasFallback });
 
     Promise.all([
       api.get<{ success: boolean; manifest: AudioManifest | null }>(`/tts/manifest/${id}?type=${type}`)
@@ -75,13 +87,12 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
         .then((res) => res.data?.manifest ?? { voice: '', rate: '', generatedAt: '', audioMap: {} }),
     ])
       .then(([templateManifest, systemManifest]) => {
-        if (cancelled) return;
-
         // DB 拉不到模板 manifest 时，尝试用内存中的 fallback（store 里的）
         let effectiveTemplateManifest = templateManifest;
-        if ((!templateManifest || Object.keys(templateManifest.audioMap ?? {}).length === 0) && fallbackManifest) {
+        const dbCount = Object.keys(templateManifest?.audioMap ?? {}).length;
+        if (dbCount === 0 && currentFallback) {
           console.log('[tts] DB manifest 为空，使用内存 fallback manifest（store）');
-          effectiveTemplateManifest = fallbackManifest;
+          effectiveTemplateManifest = currentFallback;
         }
 
         // 合并 audioMap：系统级在前，模板级覆盖同名 key（正常不会冲突）
@@ -103,14 +114,17 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
           audioMap: mergedAudioMap,
         };
 
+        const mergedCount = Object.keys(mergedAudioMap).length;
         console.log('[tts] manifest loaded:', {
+          dbCount,
           templateCount: Object.keys(templateAudioMap).length,
           systemCount: Object.keys(systemManifest?.audioMap ?? {}).length,
-          mergedCount: Object.keys(mergedAudioMap).length,
+          mergedCount,
           usedFallback: effectiveTemplateManifest !== templateManifest,
         });
 
-        speech.setAudioManifest(merged);
+        // 通过 ref 调用，避免依赖 speech 对象引用
+        setAudioManifestRef.current(merged);
 
         // 模板级 audioMap 是否为空——用于提示用户去生成
         const tplCount = Object.keys(templateAudioMap).length;
@@ -118,25 +132,21 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
         setManifestReady(true);
       })
       .catch((err) => {
-        if (cancelled) return;
         const msg = err instanceof Error ? err.message : String(err);
         console.warn('[tts] load manifest failed:', msg);
         setManifestError(msg);
         // 即使失败也尝试用 fallback
-        if (fallbackManifest) {
+        if (currentFallback) {
           console.log('[tts] API 失败，使用内存 fallback manifest');
-          speech.setAudioManifest(fallbackManifest);
-          setTemplateAudioMissing(Object.keys(fallbackManifest.audioMap ?? {}).length === 0);
+          setAudioManifestRef.current(currentFallback);
+          setTemplateAudioMissing(Object.keys(currentFallback.audioMap ?? {}).length === 0);
         } else {
           setTemplateAudioMissing(true);
         }
         setManifestReady(true);
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, token, key, fallbackKey, templateId, planId, speech, fallbackManifest]);
+    // ⚠️ 依赖数组不包含 speech 和 fallbackManifest（通过 ref 访问），避免引用变化中断请求
+  }, [enabled, token, key, fallbackKey, templateId, planId]);
 
   return { manifestReady, manifestError, templateAudioMissing };
 }
