@@ -987,7 +987,7 @@ export const useTrainingStore = create<TrainingStore>()(
         activeTemplateId: state.activeTemplateId,
         activePlanId: state.activePlanId,
         activeRecordId: state.activeRecordId,
-        sharePlanId: state.sharePlanId,
+        // ⚠️ sharePlanId 不持久化到 localStorage：仅依赖 URL 参数，避免缓存过期导致首页逻辑混乱
         session: state.session.status !== 'idle' ? state.session : initialSession,
       }),
     }

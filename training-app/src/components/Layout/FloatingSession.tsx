@@ -205,6 +205,7 @@ export function FloatingSession() {
     firedRestStartRef.current = false;
     firedRestEndRef.current = false;
     lastRestSecRef.current = 0;
+    prevDrillIndexRef.current = -1;
   }, []);
 
   useWakeLock(settings.keepScreenAwake && session.status === 'running');
@@ -287,7 +288,9 @@ export function FloatingSession() {
     }
 
     const sessionId = activePlanId ?? '';
-    const drillKey = `${sessionId}:${session.drillIndex}`;
+    // ⚠️ 关键：drillKey 包含 session.startedAt，确保每次新训练（再练一次/取消后重新开始）
+    // 都生成不同的 key → 触发 refs 重置 → firedIntroRef 重新为 false → 语音能正常播报
+    const drillKey = `${sessionId}:${session.drillIndex}:${session.startedAt ?? 0}`;
     if (startedDrillRef.current !== drillKey) {
       startedDrillRef.current = drillKey;
       firedCueKeysRef.current = new Set();
@@ -298,51 +301,29 @@ export function FloatingSession() {
       firedIntroRef.current = false;
     }
 
-    if (session.status === 'running' && session.remaining >= drill.duration - 0.05 && !firedIntroRef.current) {
-      // 如果语音启用但 manifest 还没加载好，延迟播报（最多等 5 秒）
-      if (effectiveSpeechEnabled && !manifestReadyRef.current) {
-        const timer = window.setTimeout(() => {
-          if (!firedIntroRef.current) {
-            firedIntroRef.current = true;
-            const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
-            speech.enqueue(intro);
-            beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
-            if (!onlyTimerMode) {
-              if (drill.summary) {
-                speech.enqueue(drill.summary);
-              }
-              drill.cues
-                .filter((c) => c.trigger === 'start')
-                .forEach((c) => {
-                  const key = `start:${c.id}`;
-                  if (!firedCueKeysRef.current.has(key)) {
-                    firedCueKeysRef.current.add(key);
-                    speech.enqueue(c.text);
-                  }
-                });
-            }
+    if (session.status === 'running' && !firedIntroRef.current) {
+      // ⚠️ 如果语音启用但 manifest 还没加载好，跳过本轮（firedIntroRef 保持 false）
+      // manifestReady 变化会触发 effect 重新运行，届时再播报 intro
+      // 之前用 setTimeout(5000) 是无效的：effect 每 250ms tick 重跑，每次都清除并重设 timeout
+      if (!effectiveSpeechEnabled || manifestReadyRef.current) {
+        firedIntroRef.current = true;
+        const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
+        speech.enqueue(intro);
+        beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
+        if (!onlyTimerMode) {
+          if (drill.summary) {
+            speech.enqueue(drill.summary);
           }
-        }, 5000);
-        return () => window.clearTimeout(timer);
-      }
-
-      firedIntroRef.current = true;
-      const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
-      speech.enqueue(intro);
-      beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
-      if (!onlyTimerMode) {
-        if (drill.summary) {
-          speech.enqueue(drill.summary);
+          drill.cues
+            .filter((c) => c.trigger === 'start')
+            .forEach((c) => {
+              const key = `start:${c.id}`;
+              if (!firedCueKeysRef.current.has(key)) {
+                firedCueKeysRef.current.add(key);
+                speech.enqueue(c.text);
+              }
+            });
         }
-        drill.cues
-          .filter((c) => c.trigger === 'start')
-          .forEach((c) => {
-            const key = `start:${c.id}`;
-            if (!firedCueKeysRef.current.has(key)) {
-              firedCueKeysRef.current.add(key);
-              speech.enqueue(c.text);
-            }
-          });
       }
     }
 
@@ -460,7 +441,7 @@ export function FloatingSession() {
       firedRestEndRef.current = false;
       lastRestSecRef.current = 0;
     }
-  }, [session, drill, speech, beep, settings.soundEnabled]);
+  }, [session, drill, speech, beep, settings.soundEnabled, manifestReady, onlyTimerMode]);
 
   const isLast = session.status === 'finished' && session.drillIndex >= sessionDrills.length - 1;
   const isLastDrill = sessionDrills.length > 0 && session.drillIndex >= sessionDrills.length - 1;
@@ -804,37 +785,7 @@ export function FloatingSession() {
                     )}
                   </div>
 
-                  {/* Mute toggle & Only timer mode */}
-                  <div className="mt-4 flex justify-center gap-2">
-                    <button
-                      onClick={() => updateSettings({ speechEnabled: !settings.speechEnabled })}
-                      className={cn(
-                        'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors',
-                        settings.speechEnabled
-                          ? 'bg-theme-accent/10 text-theme-accent'
-                          : 'bg-theme-bg-card text-theme-text-muted'
-                      )}
-                    >
-                      {settings.speechEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-                      {settings.speechEnabled ? '语音播报' : '已静音'}
-                    </button>
-                    <button
-                      onClick={() => setOnlyTimerMode((m) => {
-                        const newValue = !m;
-                        localStorage.setItem('training_onlyTimerMode', JSON.stringify(newValue));
-                        return newValue;
-                      })}
-                      className={cn(
-                        'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors',
-                        onlyTimerMode
-                          ? 'bg-theme-accent/10 text-theme-accent'
-                          : 'bg-theme-bg-card text-theme-text-muted'
-                      )}
-                    >
-                      <Timer className="h-3.5 w-3.5" />
-                      {onlyTimerMode ? '仅播放计时' : '播放要点'}
-                    </button>
-                  </div>
+                  {/* Mute toggle & Only timer mode - 隐藏按钮，默认播放语音和要点，用户通过设备音量控制 */}
 
                   {/* Cues */}
                   {drill.cues.length > 0 && (
@@ -1006,6 +957,7 @@ export function FloatingSession() {
                             speech.clear();
                             cancelSession();
                             recordIdRef.current = null;
+                            resetSpeechTracking();
                             setShowCancelConfirm(false);
                             setOpen(false);
                           }}

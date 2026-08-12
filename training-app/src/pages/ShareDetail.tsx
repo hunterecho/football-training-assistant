@@ -949,21 +949,6 @@ export function ShareDetail() {
 
                   <div className="mt-4 flex justify-center gap-2">
                     <button
-                      onClick={() => setSpeechEnabled(!speechEnabled)}
-                      className={cn(
-                        'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors relative',
-                        speechEnabled
-                          ? 'bg-theme-accent/10 text-theme-accent'
-                          : 'bg-theme-bg-card text-theme-text-muted'
-                      )}
-                    >
-                      {speechEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-                      {speechEnabled ? (useFallback ? '提示音' : '语音播报') : '已静音'}
-                      {speechEnabled && useFallback && (
-                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-500 rounded-full" />
-                      )}
-                    </button>
-                    <button
                       onClick={() => setShowCancelConfirm(true)}
                       className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-theme-danger hover:bg-theme-danger/10 transition-colors"
                     >
@@ -1077,21 +1062,6 @@ export function ShareDetail() {
                   </div>
 
                   <div className="mt-4 flex justify-center gap-2">
-                    <button
-                      onClick={() => setSpeechEnabled(!speechEnabled)}
-                      className={cn(
-                        'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors relative',
-                        speechEnabled
-                          ? 'bg-theme-accent/10 text-theme-accent'
-                          : 'bg-theme-bg-card text-theme-text-muted'
-                      )}
-                    >
-                      {speechEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-                      {speechEnabled ? (useFallback ? '提示音' : '语音播报') : '已静音'}
-                      {speechEnabled && useFallback && (
-                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-500 rounded-full" />
-                      )}
-                    </button>
                     <button
                       onClick={resetCurrentDrill}
                       className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-theme-text-muted hover:text-theme-text-secondary transition-colors"
