@@ -396,6 +396,10 @@ export function FloatingSession() {
       const isLast = session.drillIndex >= sessionDrills.length - 1;
       console.log('[FloatingSession] status=finished detected:', { isLast, drillIndex: session.drillIndex, drillsLen: sessionDrills.length });
       if (isLast) {
+        // ⚠️ 关键：先 clear 再 enqueue，清除可能残留的倒计时数字（"1" 等 high priority 音频）
+        // 倒计时数字用 high priority 会清空队列并立即播放，"训练完成" 是 normal priority
+        // 如果不清空，"训练完成" 会排在正在播放的 "1" 后面，可能因队列处理卡住而无法播报
+        speech.clear();
         speech.enqueue('训练完成，大家辛苦了！');
         if (activeRecordId) {
           const record = records.find((r) => r.id === activeRecordId);
@@ -416,9 +420,10 @@ export function FloatingSession() {
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
       const next = sessionDrills[session.drillIndex + 1];
-      speech.enqueue('开始休息');
       if (session.restDuration > 0) {
-        speech.enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
+        speech.enqueue(`开始休息 ${formatDurationChinese(session.restDuration)}`);
+      } else {
+        speech.enqueue('开始休息');
       }
       if (next?.title) {
         speech.enqueue('准备下一环节');

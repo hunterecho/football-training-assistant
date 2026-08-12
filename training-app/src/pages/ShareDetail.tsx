@@ -364,6 +364,8 @@ export function ShareDetail() {
       const isLast = session.drillIndex >= template.drills.length - 1;
       console.log('[ShareDetail] status=finished detected:', { isLast, drillIndex: session.drillIndex, drillsLen: template.drills.length });
       if (isLast) {
+        // 先 clear 清除可能残留的倒计时数字，再入队"训练完成"
+        clear();
         enqueue('训练完成，大家辛苦了！');
       }
       // 非最后环节不再播报 "X 完成"（用户反馈没必要，减少队列长度防抢播）
@@ -409,9 +411,10 @@ export function ShareDetail() {
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
       const next = template.drills[session.drillIndex + 1];
-      enqueue('开始休息');
       if (session.restDuration > 0) {
-        enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
+        enqueue(`开始休息 ${formatDurationChinese(session.restDuration)}`);
+      } else {
+        enqueue('开始休息');
       }
       if (next?.title) {
         enqueue('准备下一环节');
@@ -527,7 +530,8 @@ export function ShareDetail() {
 
   const prevDrill = useCallback(() => {
     if (!template) return;
-    const prevIndex = session.drillIndex - 1;
+    // 休息状态下 drillIndex 还没前进，"上一环节"应回到当前环节（即刚完成的环节）
+    const prevIndex = session.status === 'resting' ? session.drillIndex : session.drillIndex - 1;
     if (prevIndex < 0) return;
     
     const prevDrillData = template.drills[prevIndex];
@@ -543,7 +547,7 @@ export function ShareDetail() {
       restDuration: customRestDuration > 0 ? customRestDuration : 0,
       restRemaining: 0,
     });
-  }, [template, session.drillIndex, session.startedAt]);
+  }, [template, session.drillIndex, session.status, session.startedAt]);
 
   const createRecord = useCallback(async () => {
     if (!plan || !template || !user) return null;
@@ -588,8 +592,10 @@ export function ShareDetail() {
     firedCueKeysRef.current = new Set();
     firedMinuteKeysRef.current = new Set();
     firedOneMinLeftRef.current = false;
-    firedIntroRef.current = false;
     
+    // 在 startSession 中直接入队 intro，并标记 firedIntroRef = true
+    // 防止后续 useEffect 检测到 status='running' 时重复入队
+    firedIntroRef.current = true;
     const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
     enqueue(intro);
     if (drill.summary) {
