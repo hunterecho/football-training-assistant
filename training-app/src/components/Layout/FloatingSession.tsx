@@ -411,16 +411,11 @@ export function FloatingSession() {
       // 故移除 "X 完成"+1.8s+clear()+startRest 的旧逻辑，避免抢播
     }
 
-    // 休息开始时（第一帧）：先播报 "X 完成"，再播报休息 4 条
-    // 统一入队，严格串行，不 clear，避免 1.8s 截断导致"休息 N 秒"被抢播
+    // 休息开始时（第一帧）：直接播报休息相关，去掉"X 完成"以缩短队列、降低抢播概率
+    // 统一入队，严格串行
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
       const next = sessionDrills[session.drillIndex + 1];
-      // 1. 上一环节完成（drill = 当前环节）
-      if (drill?.title) {
-        speech.enqueue(`${drill.title} 完成`);
-      }
-      // 2. 休息播报（按用户要求的顺序）
       speech.enqueue('开始休息');
       if (session.restDuration > 0) {
         speech.enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);

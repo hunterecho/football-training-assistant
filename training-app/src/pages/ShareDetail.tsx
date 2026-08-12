@@ -365,10 +365,8 @@ export function ShareDetail() {
       console.log('[ShareDetail] status=finished detected:', { isLast, drillIndex: session.drillIndex, drillsLen: template.drills.length });
       if (isLast) {
         enqueue('训练完成，大家辛苦了！');
-      } else {
-        const next = template.drills[session.drillIndex + 1];
-        if (drill?.title) enqueue(`${drill.title} 完成`);
       }
+      // 非最后环节不再播报 "X 完成"（用户反馈没必要，减少队列长度防抢播）
       if (isLast && currentRecordId) {
         const record = userRecords.find((r) => r.id === currentRecordId);
         if (record && record.status !== 'completed') {
@@ -406,14 +404,11 @@ export function ShareDetail() {
       // resetSession 也会把 session 重置影响后续 UI
     }
 
-    // 休息开始时（第一帧）：先播 "X 完成"，再播休息 4 条
-    // 统一入队，严格串行，避免前一条未播完就 clear 造成抢播
+    // 休息开始时（第一帧）：直接播报休息相关，去掉"X 完成"以缩短队列、降低抢播概率
+    // 统一入队，严格串行
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
       const next = template.drills[session.drillIndex + 1];
-      if (drill?.title) {
-        enqueue(`${drill.title} 完成`);
-      }
       enqueue('开始休息');
       if (session.restDuration > 0) {
         enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
