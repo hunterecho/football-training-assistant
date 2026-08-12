@@ -22,6 +22,7 @@ import {
   Clock,
   ChevronDown,
   ChevronUp,
+  Flag,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Drill } from '@/types';
@@ -393,6 +394,7 @@ export function FloatingSession() {
     if (session.status === 'finished' && !lastEndedRef.current) {
       lastEndedRef.current = true;
       const isLast = session.drillIndex >= sessionDrills.length - 1;
+      console.log('[FloatingSession] status=finished detected:', { isLast, drillIndex: session.drillIndex, drillsLen: sessionDrills.length });
       if (isLast) {
         speech.enqueue('训练完成，大家辛苦了！');
         if (activeRecordId) {
@@ -402,22 +404,23 @@ export function FloatingSession() {
           }
         }
         beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
-      } else {
-        const next = sessionDrills[session.drillIndex + 1];
-        speech.enqueue(`${drill.title} 完成`);
-        beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 220 });
-        window.setTimeout(() => {
-          speech.clear();
-          startRestRef.current();
-        }, 1800);
       }
+      // ⚠️ 非最后环节不再走 finished 分支
+      // 正常 tick 非最后环节直接进入 resting，不经过 finished
+      // 手动 nextDrill 也会立即切到 running 新 drill（status!==finished）
+      // 故移除 "X 完成"+1.8s+clear()+startRest 的旧逻辑，避免抢播
     }
 
+    // 休息开始时（第一帧）：先播报 "X 完成"，再播报休息 4 条
+    // 统一入队，严格串行，不 clear，避免 1.8s 截断导致"休息 N 秒"被抢播
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
-      // 拆分静态语音：每条单独命中 audioMap
-      // 顺序：开始休息 → 休息时长 → 准备下一环节 → 环节标题
       const next = sessionDrills[session.drillIndex + 1];
+      // 1. 上一环节完成（drill = 当前环节）
+      if (drill?.title) {
+        speech.enqueue(`${drill.title} 完成`);
+      }
+      // 2. 休息播报（按用户要求的顺序）
       speech.enqueue('开始休息');
       if (session.restDuration > 0) {
         speech.enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
@@ -456,6 +459,7 @@ export function FloatingSession() {
   }, [session, drill, speech, beep, settings.soundEnabled]);
 
   const isLast = session.status === 'finished' && session.drillIndex >= sessionDrills.length - 1;
+  const isLastDrill = sessionDrills.length > 0 && session.drillIndex >= sessionDrills.length - 1;
   const progress = !drill || drill.duration === 0 ? 0 : 1 - session.remaining / drill.duration;
   const restProgress = session.restDuration === 0 ? 0 : 1 - session.restRemaining / session.restDuration;
   const totalDrills = sessionDrills.length;
@@ -777,12 +781,23 @@ export function FloatingSession() {
                         <Play className="h-7 w-7 translate-x-0.5" />
                       )}
                     </button>
-                    <button
-                      onClick={() => { speech.clear(); nextDrillRef.current(); resetSpeechTracking(); }}
-                      className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
-                    >
-                      <SkipForward className="h-5 w-5" />
-                    </button>
+                    {isLastDrill ? (
+                      <button
+                        onClick={() => { speech.clear(); nextDrillRef.current(); resetSpeechTracking(); }}
+                        className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-amber-600 bg-amber-50 text-amber-700 shadow-sm hover:bg-amber-100"
+                        aria-label="结束训练"
+                        title="结束训练"
+                      >
+                        <Flag className="h-5 w-5" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { speech.clear(); nextDrillRef.current(); resetSpeechTracking(); }}
+                        className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
+                      >
+                        <SkipForward className="h-5 w-5" />
+                      </button>
+                    )}
                   </div>
 
                   {/* Mute toggle & Only timer mode */}

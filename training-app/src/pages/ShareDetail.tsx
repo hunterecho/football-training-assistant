@@ -7,7 +7,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useTrainingStore } from '@/store/trainingStore';
 import type { Template, TrainingPlan, SessionState, TrainingRecord, CueTrigger, RecordStatus, AudioManifest } from '@/types';
 import { api } from '@/lib/api';
-import { Clock, Users, RotateCcw, X, LogOut, UserCircle, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ChevronDown, ChevronUp, Home, Timer } from 'lucide-react';
+import { Clock, Users, RotateCcw, X, LogOut, UserCircle, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ChevronDown, ChevronUp, Home, Timer, Flag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const initialSession: SessionState = {
@@ -361,8 +361,15 @@ export function ShareDetail() {
 
     if (session.status === 'finished' && !lastEndedRef.current) {
       lastEndedRef.current = true;
-      enqueue('训练完成，大家辛苦了！');
-      if (currentRecordId) {
+      const isLast = session.drillIndex >= template.drills.length - 1;
+      console.log('[ShareDetail] status=finished detected:', { isLast, drillIndex: session.drillIndex, drillsLen: template.drills.length });
+      if (isLast) {
+        enqueue('训练完成，大家辛苦了！');
+      } else {
+        const next = template.drills[session.drillIndex + 1];
+        if (drill?.title) enqueue(`${drill.title} 完成`);
+      }
+      if (isLast && currentRecordId) {
         const record = userRecords.find((r) => r.id === currentRecordId);
         if (record && record.status !== 'completed') {
           const endTime = Date.now();
@@ -393,15 +400,20 @@ export function ShareDetail() {
       firedRestEndRef.current = false;
       lastFiveSecRef.current = 0;
       lastRestSecRef.current = 0;
-      clear();
-      resetSession();
+      // ⚠️ 移除 clear() + resetSession()：
+      // 完成播报本身是异步的（队列串行播放），这里 clear 会把刚入队的
+      // "训练完成大家辛苦了" 直接清空，导致正常完成时无语音
+      // resetSession 也会把 session 重置影响后续 UI
     }
 
+    // 休息开始时（第一帧）：先播 "X 完成"，再播休息 4 条
+    // 统一入队，严格串行，避免前一条未播完就 clear 造成抢播
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
-      // 拆分静态语音：每条单独命中 audioMap
-      // 顺序：开始休息 → 休息时长 → 准备下一环节 → 环节标题
       const next = template.drills[session.drillIndex + 1];
+      if (drill?.title) {
+        enqueue(`${drill.title} 完成`);
+      }
       enqueue('开始休息');
       if (session.restDuration > 0) {
         enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
@@ -475,7 +487,24 @@ export function ShareDetail() {
   const nextDrill = useCallback(() => {
     if (!template) return;
     const nextIndex = session.drillIndex + 1;
-    if (nextIndex >= template.drills.length) return;
+    // 最后环节点击下一个 → 设为 finished，触发"训练完成大家辛苦了"播报
+    if (nextIndex >= template.drills.length) {
+      const isLast = session.drillIndex >= template.drills.length - 1;
+      const newCompletedCount = Math.min(session.drillIndex + (isLast ? 1 : 0), template.drills.length);
+      setCompletedDrillsCount(newCompletedCount);
+      if (currentRecordId) {
+        api.patch(`/records/${currentRecordId}`, {
+          completed_drills: newCompletedCount,
+        });
+      }
+      setSession((s) => ({
+        ...s,
+        remaining: 0,
+        status: 'finished' as const,
+        lastTickTs: Date.now(),
+      }));
+      return;
+    }
     
     const nextDrillData = template.drills[nextIndex];
     const newCompletedCount = session.drillIndex + 1;
@@ -707,6 +736,7 @@ export function ShareDetail() {
   const restProgress = session.restDuration === 0 ? 0 : 1 - session.restRemaining / session.restDuration;
   const nextDrillData = sessionDrills[session.drillIndex + 1];
   const totalDrills = sessionDrills.length;
+  const isLastDrill = !!template && session.drillIndex >= totalDrills - 1;
 
   if (loading) {
     return (
@@ -893,12 +923,23 @@ export function ShareDetail() {
                         <Play className="h-7 w-7 translate-x-0.5" />
                       )}
                     </button>
-                    <button
-                      onClick={() => { clear(); nextDrill(); }}
-                      className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
-                    >
-                      <SkipForward className="h-5 w-5" />
-                    </button>
+                    {isLastDrill ? (
+                      <button
+                        onClick={() => { clear(); nextDrill(); }}
+                        className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-amber-600 bg-amber-50 text-amber-700 shadow-sm hover:bg-amber-100"
+                        aria-label="结束训练"
+                        title="结束训练"
+                      >
+                        <Flag className="h-5 w-5" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { clear(); nextDrill(); }}
+                        className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
+                      >
+                        <SkipForward className="h-5 w-5" />
+                      </button>
+                    )}
                   </div>
 
                   <div className="mt-4 flex justify-center gap-2">
@@ -1011,12 +1052,23 @@ export function ShareDetail() {
                         <Play className="h-7 w-7 translate-x-0.5" />
                       )}
                     </button>
-                    <button
-                      onClick={() => { clear(); nextDrill(); }}
-                      className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
-                    >
-                      <SkipForward className="h-5 w-5" />
-                    </button>
+                    {isLastDrill ? (
+                      <button
+                        onClick={() => { clear(); nextDrill(); }}
+                        className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-amber-600 bg-amber-50 text-amber-700 shadow-sm hover:bg-amber-100"
+                        aria-label="结束训练"
+                        title="结束训练"
+                      >
+                        <Flag className="h-5 w-5" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { clear(); nextDrill(); }}
+                        className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
+                      >
+                        <SkipForward className="h-5 w-5" />
+                      </button>
+                    )}
                   </div>
 
                   <div className="mt-4 flex justify-center gap-2">
