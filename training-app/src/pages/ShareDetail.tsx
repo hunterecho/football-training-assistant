@@ -5,7 +5,7 @@ import { useSpeech } from '@/hooks/useSpeech';
 import { useTtsManifest } from '@/hooks/useTtsManifest';
 import { useAuthStore } from '@/store/authStore';
 import { useTrainingStore } from '@/store/trainingStore';
-import type { Template, TrainingPlan, SessionState, TrainingRecord, CueTrigger, RecordStatus } from '@/types';
+import type { Template, TrainingPlan, SessionState, TrainingRecord, CueTrigger, RecordStatus, AudioManifest } from '@/types';
 import { api } from '@/lib/api';
 import { Clock, Users, RotateCcw, X, LogOut, UserCircle, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ChevronDown, ChevronUp, Home, Timer } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -34,7 +34,7 @@ const mapPlanFromServer = (p: { id: string; template_id?: string; title: string;
   completedAt: p.completed_at ? new Date(p.completed_at).getTime() : undefined,
 });
 
-const mapTemplateFromServer = (t: { id: string; name: string; description?: string; drills?: { id?: string; title?: string; duration?: number; summary?: string; cues?: { id?: string; text?: string; trigger?: string; seconds?: number }[] }[]; created_at?: string }): Template => ({
+const mapTemplateFromServer = (t: { id: string; name: string; description?: string; drills?: { id?: string; title?: string; duration?: number; summary?: string; cues?: { id?: string; text?: string; trigger?: string; seconds?: number }[] }[]; created_at?: string; audio_manifest?: unknown }): Template => ({
   id: t.id,
   name: t.name,
   description: t.description,
@@ -50,6 +50,7 @@ const mapTemplateFromServer = (t: { id: string; name: string; description?: stri
       seconds: c.seconds,
     })),
   })),
+  audioManifest: (t.audio_manifest as AudioManifest | null | undefined) ?? null,
   createdAt: t.created_at ? new Date(t.created_at).getTime() : Date.now(),
 });
 
@@ -113,12 +114,17 @@ export function ShareDetail() {
   const { enqueue, stop, clear, speaking, resume, pause, useFallback } = speech;
 
   // 预生成 TTS 音频（云希男声）
+  // ⚠️ 关键：分享计划的 manifest 存储在原始模板上（templates.audio_manifest），不在 plan 上
+  // 必须传 templateId 让 useTtsManifest 从 templates 表加载
+  // fallbackManifest 用 API 返回的 template.audioManifest 作为内存兜底
   useTtsManifest({
     speech,
+    templateId: template?.id,
     planId: plan?.id,
     drills: template?.drills,
     restDuration: session.restDuration,
     enabled: speechEnabled,
+    fallbackManifest: template?.audioManifest ?? undefined,
   });
 
   const firedCueKeysRef = useRef<Set<string>>(new Set());
