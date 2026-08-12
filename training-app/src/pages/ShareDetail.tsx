@@ -399,19 +399,27 @@ export function ShareDetail() {
 
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
+      // 拆分静态语音：每条单独命中 audioMap，避免整条走兜底
       const next = template.drills[session.drillIndex + 1];
-      const restMsg = next ? `现在开始休息，准备下一个环节：${next.title}` : '现在开始休息';
-      enqueue(restMsg);
+      enqueue('开始休息');
+      if (next?.title) {
+        enqueue(next.title);
+      }
+      if (session.restDuration > 0) {
+        enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
+      }
     }
 
     if (session.status === 'resting' && session.restRemaining > 0) {
       const restRemainingInt = Math.max(0, Math.ceil(session.restRemaining));
-      
+
       if (restRemainingInt === 10 && !firedRestEndRef.current) {
         firedRestEndRef.current = true;
         const next = template.drills[session.drillIndex + 1];
-        const endMsg = next ? `休息即将结束，准备开始：${next.title}` : '休息即将结束';
-        enqueue(endMsg);
+        enqueue('休息结束');
+        if (next?.title) {
+          enqueue(next.title);
+        }
       }
 
       if (restRemainingInt <= 5 && restRemainingInt !== lastRestSecRef.current) {
