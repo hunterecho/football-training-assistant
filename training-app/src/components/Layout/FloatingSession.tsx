@@ -420,10 +420,11 @@ export function FloatingSession() {
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
       const next = sessionDrills[session.drillIndex + 1];
+      // 必须拆分两条：系统语音是 "开始休息" + "休息 30秒" 分开的 key
+      // 合并为 "开始休息 30秒" 在 audioMap 中找不到，会走兜底
+      speech.enqueue('开始休息');
       if (session.restDuration > 0) {
-        speech.enqueue(`开始休息 ${formatDurationChinese(session.restDuration)}`);
-      } else {
-        speech.enqueue('开始休息');
+        speech.enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
       }
       if (next?.title) {
         speech.enqueue('准备下一环节');
@@ -442,10 +443,13 @@ export function FloatingSession() {
         beep({ enabled: settings.soundEnabled, frequency: 660, durationMs: 120 });
       }
 
+      // ⚠️ 休息倒计时使用 normal priority
+      // 原因：如果用 high，enqueue('5','high') 会清空队列 → 队尾的 "准备下一环节" 被直接删掉
+      // 休息 5 秒触发是每秒一次 normal 入队，严格 FIFO 顺序播放正好是 5→4→3→2→1，不需要高优先级抢占
       if (restRemainingInt <= 5 && restRemainingInt !== lastRestSecRef.current) {
         lastRestSecRef.current = restRemainingInt;
         if (restRemainingInt > 0) {
-          speech.enqueue(`${restRemainingInt}`, 'high');
+          speech.enqueue(`${restRemainingInt}`, 'normal');
           beep({ enabled: settings.soundEnabled, frequency: 440, durationMs: 80 });
         }
       }
