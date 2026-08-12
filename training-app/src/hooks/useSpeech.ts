@@ -233,15 +233,16 @@ export function useSpeech(options: UseSpeechOptions) {
    * 在切换环节、clear、stop 时调用
    */
   const stopCurrentAudio = useCallback(() => {
-    // currentAudioRef 指向复用的单例 audioItemRef
     const audio = audioItemRef.current;
     if (audio) {
       try {
         audio.pause();
-        // 清空前先取消事件绑定，避免残留事件触发
+        // 清空所有事件绑定，避免残留回调触发
         audio.onended = null;
         audio.onerror = null;
         audio.oncanplaythrough = null;
+        audio.onwaiting = null;
+        audio.onplaying = null;
       } catch { /* noop */ }
     }
     currentAudioRef.current = null;
@@ -279,7 +280,7 @@ export function useSpeech(options: UseSpeechOptions) {
       let resolved = false;
       let pollTimer: number | undefined;
       let hardTimeout: number | undefined;
-      let estimatedMaxMs = 15000; // 默认最长 15s
+      let estimatedMaxMs = 30000; // 默认最长 30s（给缓冲留足时间）
 
       const finish = (reason: string) => {
         if (resolved) return;
@@ -290,6 +291,8 @@ export function useSpeech(options: UseSpeechOptions) {
         audio.onended = null;
         audio.onerror = null;
         audio.oncanplaythrough = null;
+        audio.onwaiting = null;
+        audio.onplaying = null;
         if (currentAudioRef.current === audio) {
           // 不置 null，保持单例下次复用
           // currentAudioRef.current = null;
@@ -304,9 +307,21 @@ export function useSpeech(options: UseSpeechOptions) {
         const dur = audio.duration;
         if (dur > 0 && isFinite(dur)) {
           if (hardTimeout) window.clearTimeout(hardTimeout);
-          estimatedMaxMs = Math.max(3000, Math.min(15000, Math.ceil((dur + 3) * 1000)));
+          estimatedMaxMs = Math.max(3000, Math.min(30000, Math.ceil((dur + 5) * 1000)));
           hardTimeout = window.setTimeout(() => finish('hard-timeout'), estimatedMaxMs);
         }
+      };
+
+      // 缓冲状态跟踪：waiting=开始缓冲，playing=恢复播放
+      // 缓冲期间不计入停滞，避免误杀正在加载的音频
+      let isBuffering = false;
+      audio.onwaiting = () => {
+        isBuffering = true;
+        console.log('[speech] audio buffering (waiting event)');
+      };
+      audio.onplaying = () => {
+        isBuffering = false;
+        console.log('[speech] audio playing, duration=', audio.duration);
       };
 
       audio.src = url;
@@ -323,29 +338,35 @@ export function useSpeech(options: UseSpeechOptions) {
             finish('poll-ended');
             return;
           }
-          // 播放完成的另一个判断：currentTime >= duration - 0.2
+          // 播放完成的另一个判断：currentTime >= duration - 0.3
+          // 用 0.3 容差避免 duration 报告不精确导致提前结束
           const dur = audio.duration;
-          if (dur > 0 && isFinite(dur) && audio.currentTime >= dur - 0.15) {
+          if (dur > 0 && isFinite(dur) && audio.currentTime >= dur - 0.3) {
             finish('poll-duration');
             return;
           }
-          // 播放停滞检测：如果有时间但 1.5s 内没有前进（可能卡死）
-          if (audio.currentTime > 0) {
+          // 播放停滞检测：仅在非缓冲状态下计数
+          // 微信缓冲时 currentTime 会暂停 2-3 秒，必须区分"缓冲"和"真正卡死"
+          if (audio.currentTime > 0 && !isBuffering) {
             if (Math.abs(audio.currentTime - lastPlaybackTime) < 0.1) {
               stagnantCount++;
-              if (stagnantCount >= 5) { // ~1.5s 没动
+              // 提高到 10 次 (~3s) 才判定卡死，给缓冲恢复留足时间
+              if (stagnantCount >= 10) {
                 finish('poll-stagnant');
                 return;
               }
             } else {
               stagnantCount = 0;
             }
+          } else {
+            // 缓冲中或尚未开始播放，重置停滞计数
+            stagnantCount = 0;
           }
           lastPlaybackTime = audio.currentTime;
         } catch { /* noop */ }
       }, 300);
 
-      // 硬超时兜底：不管什么原因，最多 15s 就结束
+      // 硬超时兜底：默认 30s，canplaythrough 后按音频时长+5s 自适应
       hardTimeout = window.setTimeout(() => finish('hard-timeout'), estimatedMaxMs);
 
       const playPromise = audio.play();

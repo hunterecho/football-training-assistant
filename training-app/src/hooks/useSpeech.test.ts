@@ -21,10 +21,12 @@ class MockAudio {
   volume = 1;
   paused = false;
   private listeners: Record<string, Set<EventListener>> = {};
-  // 支持 onended / onerror / oncanplaythrough 直接赋值
+  // 支持 onended / onerror / oncanplaythrough / onwaiting / onplaying 直接赋值
   onended: ((ev?: any) => void) | null = null;
   onerror: ((ev?: any) => void) | null = null;
   oncanplaythrough: ((ev?: any) => void) | null = null;
+  onwaiting: ((ev?: any) => void) | null = null;
+  onplaying: ((ev?: any) => void) | null = null;
   duration = NaN;
   currentTime = 0;
   ended = false;
