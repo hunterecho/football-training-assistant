@@ -307,6 +307,9 @@ export function FloatingSession() {
             speech.enqueue(intro);
             beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
             if (!onlyTimerMode) {
+              if (drill.summary) {
+                speech.enqueue(drill.summary);
+              }
               drill.cues
                 .filter((c) => c.trigger === 'start')
                 .forEach((c) => {
@@ -327,6 +330,9 @@ export function FloatingSession() {
       speech.enqueue(intro);
       beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
       if (!onlyTimerMode) {
+        if (drill.summary) {
+          speech.enqueue(drill.summary);
+        }
         drill.cues
           .filter((c) => c.trigger === 'start')
           .forEach((c) => {

@@ -356,60 +356,69 @@ function VoiceStatusRow({
     setPreviewIndex(0);
     playingRef.current = true;
 
-    const playSequence = (idx: number) => {
-      if (idx >= playlist.length) {
+    // 复用单个 Audio 实例，避免微信内多个 Audio 实例被限制
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+    }
+    const audio = audioRef.current;
+    audio.volume = 1;
+
+    let timeoutId: number | undefined;
+    let currentIndex = -1;
+
+    const playNext = () => {
+      if (!playingRef.current) return;
+
+      currentIndex++;
+      if (currentIndex >= playlist.length) {
         setPlaying(false);
         setPreviewIndex(-1);
         playingRef.current = false;
         return;
       }
-      if (!playingRef.current) return; // 已停止
 
-      const { text, url } = playlist[idx];
-      setPreviewIndex(idx);
-      console.log(`[preview] ${idx + 1}/${playlist.length} text="${text}" url=${url?.slice(0, 80)}...`);
+      const { text, url } = playlist[currentIndex];
+      setPreviewIndex(currentIndex);
+      console.log(`[preview] ${currentIndex + 1}/${playlist.length} text="${text}" url=${url?.slice(0, 80)}...`);
 
-      // 超时保护：15 秒后自动跳到下一条
-      let timeoutId: number | undefined;
+      // 清除上一个超时
+      if (timeoutId) window.clearTimeout(timeoutId);
+
+      // 复用同一个 Audio 实例，用 onended/onerror 赋值覆盖旧回调
       let advanced = false;
       const goNext = () => {
         if (advanced) return;
         advanced = true;
         if (timeoutId) window.clearTimeout(timeoutId);
-        if (audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current = null;
-        }
-        if (playingRef.current) playSequence(idx + 1);
+        if (playingRef.current) playNext();
       };
 
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      audio.volume = 1;
       audio.onended = () => {
-        console.log(`[preview] ${idx + 1} ended`);
+        console.log(`[preview] ${currentIndex + 1} ended`);
         goNext();
       };
       audio.onerror = (e) => {
-        console.warn(`[preview] ${idx + 1} error:`, e, 'url:', url);
+        console.warn(`[preview] ${currentIndex + 1} error:`, e, 'url:', url);
         goNext();
       };
 
+      audio.src = url;
+      audio.load();
+
       audio.play().then(() => {
-        console.log(`[preview] ${idx + 1} play() resolved, duration=${audio.duration}`);
-        const dur = audio.duration;
-        const timeoutMs = dur > 0 && isFinite(dur) ? (dur + 3) * 1000 : 15000;
+        console.log(`[preview] ${currentIndex + 1} play() resolved, duration=${audio.duration}`);
+        // 超时保护：最长 10 秒后自动跳到下一条
         timeoutId = window.setTimeout(() => {
-          console.warn(`[preview] ${idx + 1} timeout after ${timeoutMs}ms, force next`);
+          console.warn(`[preview] ${currentIndex + 1} timeout, force next`);
           goNext();
-        }, timeoutMs);
+        }, 10000);
       }).catch((err) => {
-        console.warn(`[preview] ${idx + 1} play() rejected:`, err);
+        console.warn(`[preview] ${currentIndex + 1} play() rejected:`, err);
         goNext();
       });
     };
 
-    playSequence(0);
+    playNext();
   };
 
   const stopPreview = () => {
@@ -418,6 +427,8 @@ function VoiceStatusRow({
     setPreviewIndex(-1);
     if (audioRef.current) {
       audioRef.current.pause();
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
       audioRef.current = null;
     }
   };

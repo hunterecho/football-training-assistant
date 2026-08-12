@@ -296,48 +296,14 @@ export function useSpeech(options: UseSpeechOptions) {
     });
   }, [ensureAudioCtx, stopCurrentAudio]);
 
-  // 统一的队列处理：先处理预生成音频，再处理 speechSynthesis
+  // 统一的队列处理：严格 FIFO，按入队顺序依次播放
+  // 解决之前的顺序错乱问题：旧代码用 find(item => item.audioUrl) 跳过了队首无音频项
   const processQueue = useCallback(async () => {
     if (!enabledRef.current) return;
     if (isProcessingRef.current) return;
 
-    // 1. 优先处理预生成音频（必须串行，一次只播一个）
-    const audioItem = queueRef.current.find((item) => item.audioUrl);
-    if (audioItem) {
-      // 如果正在播放 speechSynthesis，先取消
-      if (supported && window.speechSynthesis.speaking) {
-        try { window.speechSynthesis.cancel(); } catch { /* noop */ }
-      }
-
-      isProcessingRef.current = true;
-      speakingRef.current = true;
-      setSpeaking(true);
-
-      // 从队列中移除
-      queueRef.current = queueRef.current.filter((item) => item !== audioItem);
-
-      const audioUrl = audioItem.audioUrl!;
-      console.log('[speech] ✅ 播放预生成音频:', audioItem.text.slice(0, 40));
-
-      await playAudioItem(audioUrl);
-
-      isProcessingRef.current = false;
-      speakingRef.current = false;
-      setSpeaking(false);
-
-      // 继续处理下一个
-      if (queueRef.current.length > 0) {
-        processQueue();
-      }
-      return;
-    }
-
-    // 2. 处理 speechSynthesis 队列
-    if (!supported) return;
-    if (window.speechSynthesis.speaking) return;
-
-    const highPriority = queueRef.current.find((item) => item.priority === 'high');
-    const next = highPriority || queueRef.current.shift();
+    // 取队首元素（严格 FIFO）
+    const next = queueRef.current.shift();
     if (!next) {
       isProcessingRef.current = false;
       speakingRef.current = false;
@@ -345,63 +311,92 @@ export function useSpeech(options: UseSpeechOptions) {
       return;
     }
 
-    if (highPriority) {
-      queueRef.current = queueRef.current.filter((item) => item !== next);
-    }
-
     isProcessingRef.current = true;
     speakingRef.current = true;
     setSpeaking(true);
 
-    const u = new SpeechSynthesisUtterance(next.text);
-    u.lang = 'zh-CN';
-    u.rate = rateRef.current;
-    u.volume = volumeRef.current;
-    const v = pickVoice();
-    if (v) u.voice = v;
+    if (next.audioUrl) {
+      // 预生成音频：串行播放
+      console.log('[speech] ✅ 播放预生成音频:', next.text.slice(0, 40));
+      // 取消可能正在播放的 speechSynthesis
+      if (supported && window.speechSynthesis.speaking) {
+        try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+      }
+      await playAudioItem(next.audioUrl);
+    } else if (fallbackBeepRef.current || !supported) {
+      // 兜底提示音：根据文本内容选择提示音类型
+      console.log('[speech] 🔔 播放兜底提示音:', next.text.slice(0, 40));
+      const lower = next.text.toLowerCase();
+      if (lower.includes('开始') || lower.includes('现在')) {
+        playFallbackBeep('start');
+        vibrate([50, 30, 50]);
+      } else if (lower.includes('完成') || lower.includes('结束') || lower.includes('辛苦')) {
+        playFallbackBeep('end');
+        vibrate([100, 50, 100, 50, 100]);
+      } else if (/^\d+$/.test(next.text.trim())) {
+        playFallbackBeep('countdown');
+        vibrate(80);
+      } else {
+        playFallbackBeep('alert');
+        vibrate(100);
+      }
+      // 短暂延迟后继续下一条，避免提示音叠在一起
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } else {
+      // speechSynthesis 播报
+      await new Promise<void>((resolve) => {
+        const u = new SpeechSynthesisUtterance(next.text);
+        u.lang = 'zh-CN';
+        u.rate = rateRef.current;
+        u.volume = volumeRef.current;
+        const v = pickVoice();
+        if (v) u.voice = v;
 
-    u.onstart = () => {
-      speakingRef.current = true;
-      setSpeaking(true);
-    };
+        let resolved = false;
+        const done = () => {
+          if (resolved) return;
+          resolved = true;
+          resolve();
+        };
 
-    u.onend = () => {
-      isProcessingRef.current = false;
-      speakingRef.current = false;
-      setSpeaking(false);
-      if (!enabledRef.current) return;
-      processQueue();
-    };
+        u.onend = done;
+        u.onerror = (e) => {
+          if (e.error !== 'canceled' && e.error !== 'interrupted') {
+            setLastError(`speech error: ${e.error}`);
+            if (!fallbackBeepRef.current) {
+              setUseFallback(true);
+              fallbackBeepRef.current = true;
+            }
+          }
+          done();
+        };
 
-    u.onerror = (e) => {
-      isProcessingRef.current = false;
-      speakingRef.current = false;
-      setSpeaking(false);
-      if (e.error !== 'canceled' && e.error !== 'interrupted') {
-        setLastError(`speech error: ${e.error}`);
-        if (!fallbackBeepRef.current) {
-          setUseFallback(true);
-          fallbackBeepRef.current = true;
+        // 超时保护：10 秒后自动结束
+        const timeout = window.setTimeout(done, 10000);
+
+        try {
+          window.speechSynthesis.speak(u);
+        } catch (err) {
+          setLastError(`speak failed: ${String(err)}`);
+          window.clearTimeout(timeout);
+          if (!fallbackBeepRef.current) {
+            setUseFallback(true);
+            fallbackBeepRef.current = true;
+          }
+          done();
         }
-      }
-      if (!enabledRef.current) return;
-      processQueue();
-    };
+      });
+    }
 
-    try {
-      window.speechSynthesis.speak(u);
-    } catch (err) {
-      setLastError(`speak failed: ${String(err)}`);
-      isProcessingRef.current = false;
-      speakingRef.current = false;
-      setSpeaking(false);
-      if (!fallbackBeepRef.current) {
-        setUseFallback(true);
-        fallbackBeepRef.current = true;
-      }
+    isProcessingRef.current = false;
+    speakingRef.current = false;
+    setSpeaking(false);
+
+    // 继续处理队列
+    if (queueRef.current.length > 0 && enabledRef.current) {
       processQueue();
     }
-  }, [supported, pickVoice, playAudioItem]);
+  }, [supported, pickVoice, playAudioItem, playFallbackBeep, vibrate]);
 
   // 设置预生成的音频清单
   const setAudioManifest = useCallback((manifest: AudioManifest | null) => {
@@ -434,75 +429,39 @@ export function useSpeech(options: UseSpeechOptions) {
       }
 
       if (audioUrl) {
-        // 预生成音频加入队列，串行播放
-        // 高优先级：清空已有队列，立即播放
-        if (priority === 'high') {
-          stopCurrentAudio();
-          if (supported) {
-            try { window.speechSynthesis.cancel(); } catch { /* noop */ }
-          }
-          queueRef.current = [{ text, priority, audioUrl }];
-          isProcessingRef.current = false;
-          processQueue();
-          return;
-        }
-
-        // 低优先级：加入队列（去重）
-        const existing = queueRef.current.find(
-          (item) => item.text === text && item.priority === 'normal' && item.audioUrl === audioUrl
-        );
-        if (!existing) {
-          queueRef.current.push({ text, priority, audioUrl });
-        }
-
-        // 如果当前没有在处理队列，开始处理
-        if (!isProcessingRef.current) {
-          processQueue();
-        }
-        return;
+        console.log('[speech] enqueue hit:', text.slice(0, 40));
+      } else {
+        console.warn('[speech] enqueue miss:', text.slice(0, 40), '| audioMap.size=', audioMapRef.current.size);
       }
 
-      // audioMap 中找不到该文本——记录便于排查 key 不匹配问题
-      console.warn('[speech] ❌ audioMap 未命中，走兜底:', text.slice(0, 40), '| audioMap.size=', audioMapRef.current.size);
-
-      if (fallbackBeepRef.current || !supported) {
-        const lower = text.toLowerCase();
-        if (lower.includes('开始') || lower.includes('现在')) {
-          playFallbackBeep('start');
-          vibrate([50, 30, 50]);
-        } else if (lower.includes('完成') || lower.includes('结束') || lower.includes('辛苦')) {
-          playFallbackBeep('end');
-          vibrate([100, 50, 100, 50, 100]);
-        } else if (/^\d+$/.test(text.trim())) {
-          playFallbackBeep('countdown');
-          vibrate(80);
-        } else {
-          playFallbackBeep('alert');
-          vibrate(100);
-        }
-        return;
-      }
+      const item: QueueItem = { text, priority, ...(audioUrl ? { audioUrl } : {}) };
 
       if (priority === 'high') {
-        queueRef.current = [{ text, priority }];
-        if (window.speechSynthesis.speaking) {
+        // 高优先级：清空队列，立即播放
+        stopCurrentAudio();
+        if (supported) {
           try { window.speechSynthesis.cancel(); } catch { /* noop */ }
         }
+        queueRef.current = [item];
         isProcessingRef.current = false;
         processQueue();
         return;
       }
 
-      const existing = queueRef.current.find((item) => item.text === text && item.priority === 'normal');
+      // 低优先级：加入队列（去重）
+      const existing = queueRef.current.find(
+        (it) => it.text === text && it.priority === 'normal'
+      );
       if (!existing) {
-        queueRef.current.push({ text, priority });
+        queueRef.current.push(item);
       }
 
-      if (!window.speechSynthesis.speaking && !isProcessingRef.current) {
+      // 如果当前没有在处理队列，开始处理
+      if (!isProcessingRef.current) {
         processQueue();
       }
     },
-    [supported, processQueue, playFallbackBeep, vibrate, stopCurrentAudio]
+    [supported, processQueue, stopCurrentAudio]
   );
 
   const speak = useCallback(

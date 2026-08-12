@@ -301,7 +301,9 @@ export function ShareDetail() {
       firedIntroRef.current = true;
       const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
       enqueue(intro);
-      
+      if (drill.summary) {
+        enqueue(drill.summary);
+      }
       drill.cues
         .filter((c) => c.trigger === 'start')
         .forEach((c) => {
@@ -553,7 +555,9 @@ export function ShareDetail() {
     
     const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
     enqueue(intro);
-    
+    if (drill.summary) {
+      enqueue(drill.summary);
+    }
     drill.cues
       .filter((c) => c.trigger === 'start')
       .forEach((c) => {
