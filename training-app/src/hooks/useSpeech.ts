@@ -62,6 +62,8 @@ export function useSpeech(options: UseSpeechOptions) {
   const isProcessingRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const fallbackBeepRef = useRef(false);
+  // 复用的单例 Audio 实例：避免微信限制多 Audio 实例
+  const audioItemRef = useRef<HTMLAudioElement | null>(null);
   // 预生成音频映射: normalizedText -> url
   const audioMapRef = useRef<Map<string, string>>(new Map());
   // 跟踪当前正在播放的 Audio 实例，用于 clear/stop 时停止
@@ -231,17 +233,27 @@ export function useSpeech(options: UseSpeechOptions) {
    * 在切换环节、clear、stop 时调用
    */
   const stopCurrentAudio = useCallback(() => {
-    if (currentAudioRef.current) {
+    // currentAudioRef 指向复用的单例 audioItemRef
+    const audio = audioItemRef.current;
+    if (audio) {
       try {
-        currentAudioRef.current.pause();
-        currentAudioRef.current.src = '';
+        audio.pause();
+        // 清空前先取消事件绑定，避免残留事件触发
+        audio.onended = null;
+        audio.onerror = null;
+        audio.oncanplaythrough = null;
       } catch { /* noop */ }
-      currentAudioRef.current = null;
     }
+    currentAudioRef.current = null;
   }, []);
 
   // 处理预生成音频文件的串行播放
-  // 使用独立的 Audio 实例，通过 currentAudioRef 跟踪以便停止
+  // ⚠️ 微信环境适配：ended 事件在微信 webview 中经常不触发
+  // 修复策略：
+  // 1. 复用单例 Audio 实例（避免微信限制多 Audio 实例）
+  // 2. 同时监听 ended / error / canplaythrough 事件（不用 { once }，onended/onerror 赋值）
+  // 3. 启动 300ms 轮询 + ended 检测（endeded 事件不触发时靠轮询兜底）
+  // 4. 超时从 60s 缩短为音频时长+5s，最长 15s
   const playAudioItem = useCallback((url: string): Promise<void> => {
     return new Promise((resolve) => {
       if (!url) {
@@ -252,49 +264,118 @@ export function useSpeech(options: UseSpeechOptions) {
       // 确保 AudioContext 已激活（微信解锁）
       ensureAudioCtx();
 
-      // 停止前一个音频
-      stopCurrentAudio();
-
-      // 使用新的 Audio 实例
-      const audio = new Audio();
-      audio.src = url;
+      // 复用单例 Audio：微信限制多 Audio 实例
+      // 不调用 stopCurrentAudio()，避免破坏同一实例
+      if (!audioItemRef.current) {
+        audioItemRef.current = new Audio();
+      }
+      const audio = audioItemRef.current;
+      // 先暂停再换 src（避免微信出现资源竞争）
+      try { audio.pause(); } catch { /* noop */ }
       audio.preload = 'auto';
       audio.volume = Math.max(0, Math.min(1, volumeRef.current));
       currentAudioRef.current = audio;
 
       let resolved = false;
-      const finish = () => {
+      let pollTimer: number | undefined;
+      let hardTimeout: number | undefined;
+      let estimatedMaxMs = 15000; // 默认最长 15s
+
+      const finish = (reason: string) => {
         if (resolved) return;
         resolved = true;
-        audio.removeEventListener('ended', finish);
-        audio.removeEventListener('error', finish);
+        console.log('[speech] playAudioItem finish:', reason, 'url-tail=', url.slice(-30));
+        if (pollTimer) window.clearInterval(pollTimer);
+        if (hardTimeout) window.clearTimeout(hardTimeout);
+        audio.onended = null;
+        audio.onerror = null;
+        audio.oncanplaythrough = null;
         if (currentAudioRef.current === audio) {
-          currentAudioRef.current = null;
+          // 不置 null，保持单例下次复用
+          // currentAudioRef.current = null;
         }
         resolve();
       };
 
-      audio.addEventListener('ended', finish, { once: true });
-      audio.addEventListener('error', finish, { once: true });
+      audio.onended = () => finish('ended-event');
+      audio.onerror = (e) => finish('error-event:' + String(e));
+      audio.oncanplaythrough = () => {
+        // 能播放时重新预估时长
+        const dur = audio.duration;
+        if (dur > 0 && isFinite(dur)) {
+          if (hardTimeout) window.clearTimeout(hardTimeout);
+          estimatedMaxMs = Math.max(3000, Math.min(15000, Math.ceil((dur + 3) * 1000)));
+          hardTimeout = window.setTimeout(() => finish('hard-timeout'), estimatedMaxMs);
+        }
+      };
+
+      audio.src = url;
+      audio.load();
+
+      // 轮询兜底：微信经常不触发 ended 事件
+      // 每 300ms 检查一次 currentTime 是否抵达终点（或停止变化超过阈值）
+      let lastPlaybackTime = 0;
+      let stagnantCount = 0;
+      pollTimer = window.setInterval(() => {
+        if (resolved) return;
+        try {
+          if (audio.ended) {
+            finish('poll-ended');
+            return;
+          }
+          // 播放完成的另一个判断：currentTime >= duration - 0.2
+          const dur = audio.duration;
+          if (dur > 0 && isFinite(dur) && audio.currentTime >= dur - 0.15) {
+            finish('poll-duration');
+            return;
+          }
+          // 播放停滞检测：如果有时间但 1.5s 内没有前进（可能卡死）
+          if (audio.currentTime > 0) {
+            if (Math.abs(audio.currentTime - lastPlaybackTime) < 0.1) {
+              stagnantCount++;
+              if (stagnantCount >= 5) { // ~1.5s 没动
+                finish('poll-stagnant');
+                return;
+              }
+            } else {
+              stagnantCount = 0;
+            }
+          }
+          lastPlaybackTime = audio.currentTime;
+        } catch { /* noop */ }
+      }, 300);
+
+      // 硬超时兜底：不管什么原因，最多 15s 就结束
+      hardTimeout = window.setTimeout(() => finish('hard-timeout'), estimatedMaxMs);
 
       const playPromise = audio.play();
       if (playPromise && typeof playPromise.catch === 'function') {
-        playPromise.catch(() => {
-          // 播放失败（可能未解锁），尝试重新解锁并重试一次
-          ensureAudioCtx();
-          const retryPromise = audio.play();
-          if (retryPromise && typeof retryPromise.catch === 'function') {
-            retryPromise.catch(() => finish());
-          } else {
-            finish();
-          }
-        });
+        playPromise
+          .then(() => {
+            console.log('[speech] playAudioItem play() ok, duration=', audio.duration, 'stagnantCount=', stagnantCount);
+          })
+          .catch((err1) => {
+            console.warn('[speech] playAudioItem first play rejected:', err1?.message || String(err1));
+            // 重试一次：重新解锁 AudioContext
+            ensureAudioCtx();
+            const retryPromise = audio.play();
+            if (retryPromise && typeof retryPromise.catch === 'function') {
+              retryPromise.catch((err2) => {
+                console.warn('[speech] playAudioItem retry also rejected:', err2?.message || String(err2));
+                // 两次都失败，直接结束，避免卡住整条队列
+                finish('play-rejected');
+              });
+            }
+          });
       }
-
-      // 超时保护：最长 60 秒后自动 resolve
-      window.setTimeout(() => finish(), 60000);
     });
-  }, [ensureAudioCtx, stopCurrentAudio]);
+  }, [ensureAudioCtx]);
+
+  // 队列看门狗：如果 isProcessing=true 超过 30s，强制解锁继续处理下一条
+  // 解决微信/移动端偶现的 Promise 永远不 resolve 导致队列卡死
+  const queueWatchdogRef = useRef<number | undefined>(undefined);
+  const processingStartedRef = useRef<number>(0);
+  const processQueueRef = useRef<() => Promise<void>>(async () => {});
 
   // 统一的队列处理：严格 FIFO，按入队顺序依次播放
   // 解决之前的顺序错乱问题：旧代码用 find(item => item.audioUrl) 跳过了队首无音频项
@@ -314,6 +395,7 @@ export function useSpeech(options: UseSpeechOptions) {
     isProcessingRef.current = true;
     speakingRef.current = true;
     setSpeaking(true);
+    processingStartedRef.current = Date.now(); // 看门狗计时起点
 
     if (next.audioUrl) {
       // 预生成音频：串行播放
@@ -397,6 +479,39 @@ export function useSpeech(options: UseSpeechOptions) {
       processQueue();
     }
   }, [supported, pickVoice, playAudioItem, playFallbackBeep, vibrate]);
+
+  // 同步 processQueue 最新引用到 ref，供 watchdog 使用（避免声明顺序问题）
+  processQueueRef.current = processQueue;
+
+  // 队列看门狗：isProcessing=true 超过 30s 时强制解锁（processQueue 用 ref 访问，无声明顺序问题）
+  useEffect(() => {
+    if (queueWatchdogRef.current) return;
+    queueWatchdogRef.current = window.setInterval(() => {
+      if (isProcessingRef.current) {
+        const elapsed = Date.now() - processingStartedRef.current;
+        if (elapsed > 30000) {
+          console.warn('[speech] ⚠️ 看门狗触发：processing 超过 30s，强制解锁队列，已处理=', elapsed, 'ms');
+          stopCurrentAudio();
+          if (supported) {
+            try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+          }
+          isProcessingRef.current = false;
+          speakingRef.current = false;
+          setSpeaking(false);
+          if (queueRef.current.length > 0 && enabledRef.current) {
+            // 不直接依赖 processQueue 标识符（声明在后面），通过 ref 访问
+            void processQueueRef.current();
+          }
+        }
+      }
+    }, 1000);
+    return () => {
+      if (queueWatchdogRef.current) {
+        window.clearInterval(queueWatchdogRef.current);
+        queueWatchdogRef.current = undefined;
+      }
+    };
+  }, [supported, stopCurrentAudio]);
 
   // 设置预生成的音频清单
   const setAudioManifest = useCallback((manifest: AudioManifest | null) => {

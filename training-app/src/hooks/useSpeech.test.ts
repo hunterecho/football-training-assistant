@@ -21,6 +21,13 @@ class MockAudio {
   volume = 1;
   paused = false;
   private listeners: Record<string, Set<EventListener>> = {};
+  // 支持 onended / onerror / oncanplaythrough 直接赋值
+  onended: ((ev?: any) => void) | null = null;
+  onerror: ((ev?: any) => void) | null = null;
+  oncanplaythrough: ((ev?: any) => void) | null = null;
+  duration = NaN;
+  currentTime = 0;
+  ended = false;
   static instances: MockAudio[] = [];
 
   constructor(src?: string) {
@@ -43,7 +50,12 @@ class MockAudio {
   }
   // 辅助方法：触发 ended 事件以推进队列
   _triggerEnded() {
+    this.ended = true;
+    // 同时触发 addEventListener 注册和 onended 赋值的回调
     this.listeners['ended']?.forEach((l) => l({} as any));
+    if (typeof this.onended === 'function') {
+      this.onended({});
+    }
   }
   static reset() {
     MockAudio.instances = [];
@@ -174,23 +186,25 @@ describe('useSpeech', () => {
       });
       await flush();
 
-      // 串行：此时应只创建了 A 的 Audio（B、C 在队列等待）
+      // 复用单例 Audio：只有 1 个 Audio 实例
       expect(MockAudio.instances.length).toBe(1);
       expect(MockAudio.instances[0].src).toBe('https://example.com/a.mp3');
 
-      // 触发 A 的 ended，B 应开始播放
+      // 触发 A 的 ended，B 应开始播放（复用同一实例）
       await act(async () => {
         (MockAudio.instances[0] as any)._triggerEnded();
+        await flush();
       });
-      expect(MockAudio.instances.length).toBe(2);
-      expect(MockAudio.instances[1].src).toBe('https://example.com/b.mp3');
+      expect(MockAudio.instances.length).toBe(1);
+      expect(MockAudio.instances[0].src).toBe('https://example.com/b.mp3');
 
-      // 触发 B 的 ended，C 应开始播放
+      // 触发 B 的 ended，C 应开始播放（复用同一实例）
       await act(async () => {
-        (MockAudio.instances[1] as any)._triggerEnded();
+        (MockAudio.instances[0] as any)._triggerEnded();
+        await flush();
       });
-      expect(MockAudio.instances.length).toBe(3);
-      expect(MockAudio.instances[2].src).toBe('https://example.com/c.mp3');
+      expect(MockAudio.instances.length).toBe(1);
+      expect(MockAudio.instances[0].src).toBe('https://example.com/c.mp3');
     });
 
     it('clear() 应停止当前播放并清空队列', async () => {
@@ -218,9 +232,8 @@ describe('useSpeech', () => {
       act(() => {
         result.current.clear();
       });
-      // cancel 被调用，当前 audio 被暂停并清空 src
+      // cancel 被调用，当前 audio 被暂停（复用单例，src 不清空）
       expect(mockCancel).toHaveBeenCalled();
-      expect(MockAudio.instances[0].src).toBe('');
       expect(MockAudio.instances[0].paused).toBe(true);
 
       // 触发 A 的 ended（模拟 clear 前的回调），队列已清空，B 不应播放
