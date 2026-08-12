@@ -415,18 +415,16 @@ export function FloatingSession() {
 
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
-      // ⚠️ 拆分静态语音而非硬拼接动态文本
-      // 系统级语音只有"开始休息"，不包含下一个环节名
-      // 环节名在模板 manifest 里是独立条目（drill.title）
-      // 拆成 2-3 条各自命中 audioMap，避免整条走兜底
+      // 拆分静态语音：每条单独命中 audioMap
+      // 顺序：开始休息 → 休息时长 → 准备下一环节 → 环节标题
       const next = sessionDrills[session.drillIndex + 1];
       speech.enqueue('开始休息');
-      if (next?.title) {
-        speech.enqueue(next.title);
-      }
-      // 额外播报"休息 N 秒"（系统级语音已预生成）
       if (session.restDuration > 0) {
         speech.enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
+      }
+      if (next?.title) {
+        speech.enqueue('准备下一环节');
+        speech.enqueue(next.title);
       }
       beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
     }
@@ -436,12 +434,8 @@ export function FloatingSession() {
 
       if (restRemainingInt === 10 && !firedRestEndRef.current) {
         firedRestEndRef.current = true;
-        // 同样拆分：系统级语音只有"休息结束" + 环节标题命中模板 manifest
-        const next = sessionDrills[session.drillIndex + 1];
+        // 休息结束只提示"休息结束"
         speech.enqueue('休息结束');
-        if (next?.title) {
-          speech.enqueue(next.title);
-        }
         beep({ enabled: settings.soundEnabled, frequency: 660, durationMs: 120 });
       }
 

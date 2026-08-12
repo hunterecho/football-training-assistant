@@ -399,14 +399,16 @@ export function ShareDetail() {
 
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
-      // 拆分静态语音：每条单独命中 audioMap，避免整条走兜底
+      // 拆分静态语音：每条单独命中 audioMap
+      // 顺序：开始休息 → 休息时长 → 准备下一环节 → 环节标题
       const next = template.drills[session.drillIndex + 1];
       enqueue('开始休息');
-      if (next?.title) {
-        enqueue(next.title);
-      }
       if (session.restDuration > 0) {
         enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
+      }
+      if (next?.title) {
+        enqueue('准备下一环节');
+        enqueue(next.title);
       }
     }
 
@@ -415,11 +417,8 @@ export function ShareDetail() {
 
       if (restRemainingInt === 10 && !firedRestEndRef.current) {
         firedRestEndRef.current = true;
-        const next = template.drills[session.drillIndex + 1];
+        // 休息结束只提示"休息结束"
         enqueue('休息结束');
-        if (next?.title) {
-          enqueue(next.title);
-        }
       }
 
       if (restRemainingInt <= 5 && restRemainingInt !== lastRestSecRef.current) {

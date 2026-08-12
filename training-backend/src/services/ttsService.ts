@@ -174,6 +174,7 @@ export function getSystemTexts(): string[] {
     '还剩一分钟',
     '休息结束',
     '开始休息',
+    '准备下一环节',
     '1',
     '2',
     '3',
