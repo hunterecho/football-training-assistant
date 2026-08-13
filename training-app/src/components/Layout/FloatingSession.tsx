@@ -381,17 +381,12 @@ export function FloatingSession() {
       // 故移除 "X 完成"+1.8s+clear()+startRest 的旧逻辑，避免抢播
     }
 
-    // 休息开始时（第一帧）：直接播报休息相关，去掉"X 完成"以缩短队列、降低抢播概率
-    // 统一入队，严格串行
+    // 休息开始时（第一帧）：只播报"开始休息"和"准备下一环节"
+    // 不播报"休息N秒"（用户自己设置的，有倒计时可见）和"休息结束"（有倒计时）
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
       const next = sessionDrills[session.drillIndex + 1];
-      // 必须拆分两条：系统语音是 "开始休息" + "休息 30秒" 分开的 key
-      // 合并为 "开始休息 30秒" 在 audioMap 中找不到，会走兜底
       speech.enqueue('开始休息');
-      if (session.restDuration > 0) {
-        speech.enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
-      }
       if (next?.title) {
         speech.enqueue('准备下一环节');
         speech.enqueue(next.title);
@@ -402,16 +397,7 @@ export function FloatingSession() {
     if (session.status === 'resting' && session.restRemaining > 0) {
       const restRemainingInt = Math.max(0, Math.ceil(session.restRemaining));
 
-      if (restRemainingInt === 10 && !firedRestEndRef.current) {
-        firedRestEndRef.current = true;
-        // 休息结束只提示"休息结束"
-        speech.enqueue('休息结束');
-        beep({ enabled: settings.soundEnabled, frequency: 660, durationMs: 120 });
-      }
-
-      // ⚠️ 休息倒计时使用 normal priority
-      // 原因：如果用 high，enqueue('5','high') 会清空队列 → 队尾的 "准备下一环节" 被直接删掉
-      // 休息 5 秒触发是每秒一次 normal 入队，严格 FIFO 顺序播放正好是 5→4→3→2→1，不需要高优先级抢占
+      // 休息最后5秒倒计时语音
       if (restRemainingInt <= 5 && restRemainingInt !== lastRestSecRef.current) {
         lastRestSecRef.current = restRemainingInt;
         if (restRemainingInt > 0) {

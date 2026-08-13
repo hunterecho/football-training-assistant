@@ -143,6 +143,7 @@ export function ShareDetail() {
   const lastRestSecRef = useRef<number>(0);
   const lastEndedRef = useRef<boolean>(false);
   const lastFiveSecRef = useRef<number>(0);
+  const prevStatusRef = useRef<string>(session.status);
 
   // 重置语音跟踪 refs，使下一个 useEffect 周期重新播报 intro
   const resetSpeechTracking = useCallback(() => {
@@ -157,6 +158,7 @@ export function ShareDetail() {
     firedRestEndRef.current = false;
     lastRestSecRef.current = 0;
     prevDrillIndexRef.current = -1;
+    prevStatusRef.current = 'idle';
   }, []);
 
   // 分页加载训练记录（reset=true 时重置列表，false 时追加下一页）
@@ -324,6 +326,23 @@ export function ShareDetail() {
     return () => clearInterval(interval);
   }, [session.status]);
 
+  // 状态转换 effect：当环节自动完成时（running→resting 或 running→finished），
+  // 更新 completedDrillsCount 并同步后端记录的 completed_drills
+  useEffect(() => {
+    const prevStatus = prevStatusRef.current;
+    prevStatusRef.current = session.status;
+
+    if (prevStatus === 'running' && (session.status === 'resting' || session.status === 'finished') && template) {
+      const newCompletedCount = Math.min(session.drillIndex + 1, template.drills.length);
+      setCompletedDrillsCount(newCompletedCount);
+      if (currentRecordId) {
+        api.patch(`/records/${currentRecordId}`, {
+          completed_drills: newCompletedCount,
+        });
+      }
+    }
+  }, [session.status, session.drillIndex, template, currentRecordId]);
+
   const getSessionState = () => {
     return { session, template };
   };
@@ -414,22 +433,21 @@ export function ShareDetail() {
       }
       // 非最后环节不再播报 "X 完成"（用户反馈没必要，减少队列长度防抢播）
       if (isLast && currentRecordId) {
-        const record = userRecords.find((r) => r.id === currentRecordId);
-        if (record && record.status !== 'completed') {
-          const endTime = Date.now();
-          const durationSeconds = session.startedAt ? Math.round((endTime - session.startedAt) / 1000) : 0;
-          api.patch(`/records/${currentRecordId}`, {
-            status: 'completed',
-            end_time: new Date(endTime).toISOString(),
-            duration_seconds: durationSeconds,
-            completed_drills: template.drills.length,
-            completed_at: new Date(endTime).toISOString(),
-          }).then(() => {
-            if (token) {
-              loadRecords(1, planId, true);
-            }
-          });
-        }
+        // 确保最后环节也划线
+        setCompletedDrillsCount(template.drills.length);
+        const endTime = Date.now();
+        const durationSeconds = session.startedAt ? Math.round((endTime - session.startedAt) / 1000) : 0;
+        api.patch(`/records/${currentRecordId}`, {
+          status: 'completed',
+          end_time: new Date(endTime).toISOString(),
+          duration_seconds: durationSeconds,
+          completed_drills: template.drills.length,
+          completed_at: new Date(endTime).toISOString(),
+        }).then(() => {
+          if (token) {
+            loadRecords(1, planId, true);
+          }
+        });
       }
       
       firedCueKeysRef.current = new Set();
@@ -446,17 +464,12 @@ export function ShareDetail() {
       // resetSession 也会把 session 重置影响后续 UI
     }
 
-    // 休息开始时（第一帧）：直接播报休息相关，去掉"X 完成"以缩短队列、降低抢播概率
-    // 统一入队，严格串行
+    // 休息开始时（第一帧）：只播报"开始休息"和"准备下一环节"
+    // 不播报"休息N秒"（用户自己设置的，有倒计时可见）和"休息结束"（有倒计时）
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
       const next = template.drills[session.drillIndex + 1];
-      // 必须拆分两条：系统语音是 "开始休息" + "休息 30秒" 分开的 key
-      // 合并为 "开始休息 30秒" 在 audioMap 中找不到，会走兜底
       enqueue('开始休息');
-      if (session.restDuration > 0) {
-        enqueue(`休息 ${formatDurationChinese(session.restDuration)}`);
-      }
       if (next?.title) {
         enqueue('准备下一环节');
         enqueue(next.title);
@@ -466,15 +479,7 @@ export function ShareDetail() {
     if (session.status === 'resting' && session.restRemaining > 0) {
       const restRemainingInt = Math.max(0, Math.ceil(session.restRemaining));
 
-      if (restRemainingInt === 10 && !firedRestEndRef.current) {
-        firedRestEndRef.current = true;
-        // 休息结束只提示"休息结束"
-        enqueue('休息结束');
-      }
-
-      // ⚠️ 休息倒计时使用 normal priority
-      // 原因：如果用 high，enqueue('5','high') 会清空队列 → 队尾的 "准备下一环节" 被直接删掉
-      // 休息 5 秒触发是每秒一次 normal 入队，严格 FIFO 顺序播放正好是 5→4→3→2→1，不需要高优先级抢占
+      // 休息最后五秒倒计时语音
       if (restRemainingInt <= 5 && restRemainingInt !== lastRestSecRef.current) {
         lastRestSecRef.current = restRemainingInt;
         if (restRemainingInt > 0) {
