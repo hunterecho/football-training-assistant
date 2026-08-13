@@ -140,6 +140,21 @@ export function ShareDetail() {
   const lastEndedRef = useRef<boolean>(false);
   const lastFiveSecRef = useRef<number>(0);
 
+  // 重置语音跟踪 refs，使下一个 useEffect 周期重新播报 intro
+  const resetSpeechTracking = useCallback(() => {
+    startedDrillRef.current = '';
+    firedIntroRef.current = false;
+    firedCueKeysRef.current = new Set();
+    firedMinuteKeysRef.current = new Set();
+    firedOneMinLeftRef.current = false;
+    lastEndedRef.current = false;
+    lastFiveSecRef.current = 0;
+    firedRestStartRef.current = false;
+    firedRestEndRef.current = false;
+    lastRestSecRef.current = 0;
+    prevDrillIndexRef.current = -1;
+  }, []);
+
   useEffect(() => {
     if (!planId) {
       setError('无效的分享链接');
@@ -293,7 +308,7 @@ export function ShareDetail() {
       prevDrillIndexRef.current = session.drillIndex;
     }
 
-    const drillKey = `${template.id}:${session.drillIndex}`;
+    const drillKey = `${template.id}:${session.drillIndex}:${session.startedAt ?? 0}`;
     if (startedDrillRef.current !== drillKey) {
       startedDrillRef.current = drillKey;
       firedCueKeysRef.current = new Set();
@@ -303,7 +318,7 @@ export function ShareDetail() {
       firedIntroRef.current = false;
     }
 
-    if (session.status === 'running' && session.remaining >= drill.duration - 0.05 && !firedIntroRef.current) {
+    if (session.status === 'running' && !firedIntroRef.current) {
       firedIntroRef.current = true;
       const intro = `现在开始 ${drill.title}，时长 ${formatDurationChinese(drill.duration)}`;
       enqueue(intro);
@@ -648,6 +663,8 @@ export function ShareDetail() {
   const resetCurrentDrill = useCallback(() => {
     if (!template) return;
     stop();
+    clear();
+    resetSpeechTracking();
     setSession((s) => {
       const drill = template.drills[s.drillIndex];
       if (!drill) return s;
@@ -659,7 +676,7 @@ export function ShareDetail() {
         lastTickTs: null,
       };
     });
-  }, [template, stop]);
+  }, [template, stop, clear, resetSpeechTracking]);
 
   const cancelTraining = useCallback(async () => {
     stop();
@@ -835,12 +852,6 @@ export function ShareDetail() {
                         {sessionDrills.length} 个环节
                       </div>
                     )}
-                    {useFallback && speechEnabled && (
-                      <div className="mt-4 flex items-center justify-center gap-2 text-xs text-amber-600 bg-amber-50 rounded-lg py-2 px-3">
-                        <span>🔔</span>
-                        <span>提示音模式（点击开始后会有提示音和振动）</span>
-                      </div>
-                    )}
                   </div>
 
                   <button
@@ -904,12 +915,15 @@ export function ShareDetail() {
                   </div>
 
                   <div className="mx-auto flex max-w-md items-center justify-center gap-3">
-                    <button
-                      onClick={() => { clear(); prevDrill(); }}
-                      className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
-                    >
-                      <SkipBack className="h-5 w-5" />
-                    </button>
+                    {/* 第一个环节时隐藏上一环节按钮 */}
+                    {session.drillIndex > 0 && (
+                      <button
+                        onClick={() => { clear(); prevDrill(); }}
+                        className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
+                      >
+                        <SkipBack className="h-5 w-5" />
+                      </button>
+                    )}
                     <button
                       onClick={() => {
                         if (session.status === 'resting') {
@@ -1015,12 +1029,15 @@ export function ShareDetail() {
                   </div>
 
                   <div className="mx-auto flex max-w-md items-center justify-center gap-3">
-                    <button
-                      onClick={() => { clear(); prevDrill(); }}
-                      className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
-                    >
-                      <SkipBack className="h-5 w-5" />
-                    </button>
+                    {/* 第一个环节时隐藏上一环节按钮 */}
+                    {session.drillIndex > 0 && (
+                      <button
+                        onClick={() => { clear(); prevDrill(); }}
+                        className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
+                      >
+                        <SkipBack className="h-5 w-5" />
+                      </button>
+                    )}
                     <button
                       onClick={() => {
                         if (session.status === 'running') {
@@ -1127,7 +1144,8 @@ export function ShareDetail() {
                               : 'bg-theme-bg-card hover:bg-theme-bg-card-subtle'
                         } ${(session.status === 'running' || session.status === 'paused') && !isActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                       >
-                        <div className="p-3">
+                        {/* 增加垂直padding（p-3 → p-4）：防止框框上边一行的数字显示被截断 */}
+                        <div className="p-4">
                           <div className="flex items-center justify-between mb-2">
                             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${
                               isActive 
