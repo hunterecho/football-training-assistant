@@ -31,7 +31,7 @@ type TrainingStore = {
   setTemplates: (t: Template[]) => void;
   addTemplate: (t: Template) => void;
   updateTemplate: (id: string, patch: Partial<Template>) => void;
-  removeTemplate: (id: string) => void;
+  removeTemplate: (id: string) => Promise<{ ok: boolean; error?: string }>;
   duplicateTemplate: (id: string) => void;
 
   /** 为模板生成语音播报（解耦的手动操作，不跟保存绑定）。返回成功/失败以及生成的条目数。 */
@@ -235,19 +235,22 @@ export const useTrainingStore = create<TrainingStore>()(
           }
         }
       },
-      removeTemplate: (id) => {
+      removeTemplate: async (id) => {
+        const token = useAuthStore.getState().token;
+        if (!token) return { ok: false, error: '未登录' };
+
+        const res = await api.delete<{ ok?: boolean; error?: string }>(`/templates/${id}`);
+        if (res.error || (res.data && res.data.error)) {
+          return { ok: false, error: res.error || res.data?.error };
+        }
+
         set((s) => {
           const next = s.templates.filter((t) => t.id !== id);
           const active =
             s.activeTemplateId === id ? next[0]?.id ?? null : s.activeTemplateId;
-          const plans = s.plans.filter((p) => p.templateId !== id);
-          const records = s.records.filter((r) => r.templateId !== id);
-          return { templates: next, activeTemplateId: active, plans, records };
+          return { templates: next, activeTemplateId: active };
         });
-        const token = useAuthStore.getState().token;
-        if (token) {
-          api.delete(`/templates/${id}`);
-        }
+        return { ok: true };
       },
       duplicateTemplate: (id) =>
         set((s) => {

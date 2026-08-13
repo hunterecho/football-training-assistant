@@ -7,7 +7,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useTrainingStore } from '@/store/trainingStore';
 import type { Template, TrainingPlan, SessionState, TrainingRecord, CueTrigger, RecordStatus, AudioManifest } from '@/types';
 import { api } from '@/lib/api';
-import { Clock, Users, RotateCcw, X, LogOut, UserCircle, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ChevronDown, ChevronUp, Home, Timer, Flag, ChevronsLeft, ArrowLeftToLine } from 'lucide-react';
+import { Clock, RotateCcw, X, LogOut, UserCircle, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ChevronDown, ChevronUp, Home, Timer, Flag, ChevronsLeft, ArrowLeftToLine } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const initialSession: SessionState = {
@@ -873,11 +873,6 @@ export function ShareDetail() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 <span className="truncate">{plan.date || '无日期'}</span>
-              </div>
-              
-              <div className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                <Users className="w-4 h-4 shrink-0" />
-                <span>{userRecords.length} 次记录</span>
               </div>
             </div>
           </div>

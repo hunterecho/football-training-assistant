@@ -92,11 +92,14 @@ export function TemplateManager() {
     setEditing(tpl);
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!confirmDelete) return;
     const { target, templateId, drillId, cueId } = confirmDelete;
     if (target === 'template') {
-      removeTemplate(templateId);
+      const result = await removeTemplate(templateId);
+      if (!result.ok) {
+        alert(result.error || '删除失败');
+      }
     } else if (target === 'drill') {
       const tpl = templates.find((t) => t.id === templateId);
       if (tpl && drillId) {
