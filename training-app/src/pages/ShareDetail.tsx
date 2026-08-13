@@ -7,7 +7,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useTrainingStore } from '@/store/trainingStore';
 import type { Template, TrainingPlan, SessionState, TrainingRecord, CueTrigger, RecordStatus, AudioManifest } from '@/types';
 import { api } from '@/lib/api';
-import { Clock, Users, RotateCcw, X, LogOut, UserCircle, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ChevronDown, ChevronUp, Home, Timer, Flag } from 'lucide-react';
+import { Clock, Users, RotateCcw, X, LogOut, UserCircle, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ChevronDown, ChevronUp, Home, Timer, Flag, ChevronsLeft, ArrowLeftToLine } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const initialSession: SessionState = {
@@ -568,6 +568,27 @@ export function ShareDetail() {
     });
   }, [template, session.drillIndex, session.status, session.startedAt]);
 
+  // 第一环节时显示：重头开始（回到 drillIndex=0，重新开始计时）
+  const restartFromBeginning = useCallback(() => {
+    if (!template || template.drills.length === 0) return;
+    resetSpeechTracking();
+    clear();
+    setCompletedDrillsCount(0);
+    const firstDrill = template.drills[0];
+    setSession({
+      ...initialSession,
+      templateId: template.id,
+      drillIndex: 0,
+      remaining: firstDrill.duration,
+      status: 'running',
+      startedAt: Date.now(),
+      lastTickTs: Date.now(),
+      drillStartedAt: Date.now(),
+      restDuration: customRestDuration > 0 ? customRestDuration : 0,
+      restRemaining: 0,
+    });
+  }, [template, customRestDuration, resetSpeechTracking, clear]);
+
   const createRecord = useCallback(async () => {
     if (!plan || !template || !user) return null;
     
@@ -839,16 +860,18 @@ export function ShareDetail() {
           <div className="bg-white rounded-t-3xl shadow-2xl min-h-[60vh]">
             <div className="p-4 pb-32">
               {sessionDrills.length === 0 || session.status === 'idle' || session.status === 'finished' || !drill ? (
-                <div className="flex flex-col items-center gap-6 py-8 text-center">
-                  <div className="w-full max-w-sm rounded-3xl border border-theme-border bg-white p-6">
+                // ⚠️ 减少留白：gap-6→gap-4, py-8→py-5
+                <div className="flex flex-col items-center gap-4 py-5 text-center">
+                  {/* 训练计时卡片：p-6→p-4, mt-2→mt-1，紧凑显示 */}
+                  <div className="w-full max-w-sm rounded-3xl border border-theme-border bg-white p-4">
                     <div className="text-xs uppercase tracking-widest text-theme-accent">
                       训练计时
                     </div>
-                    <div className="mt-2 text-2xl font-bold text-theme-text">
+                    <div className="mt-1 text-2xl font-bold text-theme-text">
                       {plan.title}
                     </div>
                     {sessionDrills.length > 0 && (
-                      <div className="mt-2 text-sm text-theme-text-muted">
+                      <div className="mt-1 text-sm text-theme-text-muted">
                         {sessionDrills.length} 个环节
                       </div>
                     )}
@@ -915,13 +938,23 @@ export function ShareDetail() {
                   </div>
 
                   <div className="mx-auto flex max-w-md items-center justify-center gap-3">
-                    {/* 第一个环节时隐藏上一环节按钮 */}
-                    {session.drillIndex > 0 && (
+                    {session.drillIndex > 0 ? (
                       <button
                         onClick={() => { clear(); prevDrill(); }}
                         className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
+                        aria-label="上一环节"
+                        title="上一环节"
                       >
                         <SkipBack className="h-5 w-5" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { restartFromBeginning(); }}
+                        className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
+                        aria-label="从头开始"
+                        title="从头开始"
+                      >
+                        <ChevronsLeft className="h-5 w-5" />
                       </button>
                     )}
                     <button
@@ -1029,13 +1062,23 @@ export function ShareDetail() {
                   </div>
 
                   <div className="mx-auto flex max-w-md items-center justify-center gap-3">
-                    {/* 第一个环节时隐藏上一环节按钮 */}
-                    {session.drillIndex > 0 && (
+                    {session.drillIndex > 0 ? (
                       <button
                         onClick={() => { clear(); prevDrill(); }}
                         className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
+                        aria-label="上一环节"
+                        title="上一环节"
                       >
                         <SkipBack className="h-5 w-5" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { restartFromBeginning(); }}
+                        className="flex h-12 w-12 items-center justify-center rounded-full border border-theme-border text-theme-text-secondary hover:bg-theme-bg-card"
+                        aria-label="从头开始"
+                        title="从头开始"
+                      >
+                        <ChevronsLeft className="h-5 w-5" />
                       </button>
                     )}
                     <button
@@ -1127,7 +1170,9 @@ export function ShareDetail() {
                   <h3 className="font-semibold">训练目录</h3>
                 </div>
                 
-                <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+                {/* ⚠️ pt-2：防止第一个卡片 ring-2 边框顶部被父容器切边（用户截图绿色条被截断）
+                     pb-2 保持卡片底部不被父容器 pb 切边 */}
+                <div className="flex gap-3 overflow-x-auto pt-2 pb-3 -mx-4 px-4 scrollbar-hide">
                   {template.drills.map((drill, index) => {
                     const isActive = session.drillIndex === index;
                     const isCompleted = index < completedDrillsCount;
