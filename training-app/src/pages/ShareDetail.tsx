@@ -165,9 +165,8 @@ export function ShareDetail() {
   const loadRecords = useCallback(async (page: number, pid: string, reset: boolean) => {
     setRecordsLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
       const res = await api.get<{ records: unknown[]; total: number }>(`/records/by-plan/${pid}?page=${page}&pageSize=${recordsPageSize}`);
+      if (res.error || !res.data) return;
       const records = (res.data.records ?? []).map(mapRecordFromServer);
       setUserRecords(prev => reset ? records : [...prev, ...records]);
       setRecordsTotal(res.data.total ?? records.length);
