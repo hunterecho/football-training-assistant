@@ -143,7 +143,7 @@ export function TodayPlan() {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-    weekday: 'long',
+    weekday: 'short',
   });
   const todayKey = toDateKey(today);
 
@@ -306,19 +306,19 @@ export function TodayPlan() {
     <div className="mx-auto w-full max-w-2xl pb-28">
       {/* Header */}
       <div className="px-4 pt-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-xs uppercase tracking-widest text-theme-accent">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs uppercase tracking-widest text-theme-accent whitespace-nowrap">
               今天
             </div>
-            <h1 className="mt-0.5 text-2xl font-bold text-theme-text">{dateStr}</h1>
+            <h1 className="mt-0.5 text-xl font-bold text-theme-text whitespace-nowrap truncate">{dateStr}</h1>
           </div>
           {currentPlan && (
-            <div className="rounded-2xl border border-theme-accent/30 bg-theme-accent-light px-4 py-2 text-right">
-              <div className="text-[11px] uppercase tracking-wider text-theme-text-secondary">
+            <div className="rounded-2xl border border-theme-accent/30 bg-theme-accent-light px-3 py-1.5 text-right flex-shrink-0">
+              <div className="text-[10px] uppercase tracking-wider text-theme-text-secondary whitespace-nowrap">
                 预计时长
               </div>
-              <div className="text-lg font-semibold text-theme-text">
+              <div className="text-base font-semibold text-theme-text whitespace-nowrap">
                 {totalDuration(totalSeconds)}
               </div>
             </div>

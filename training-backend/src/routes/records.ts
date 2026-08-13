@@ -58,9 +58,20 @@ router.get('/by-plan/:planId', async (req, res) => {
   try {
     const userId = req.auth!.userId;
     const { planId } = req.params;
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 10;
     const sb = getSupabase();
 
     if (sb) {
+      // 先查总数
+      const { count, error: countErr } = await sb
+        .from('training_records')
+        .select('id', { count: 'exact', head: true })
+        .eq('plan_id', planId)
+        .eq('user_id', userId);
+      if (countErr) throw new Error(countErr.message);
+      const total = count ?? 0;
+
       const { data, error } = await sb
         .from('training_records')
         .select(`
@@ -71,16 +82,20 @@ router.get('/by-plan/:planId', async (req, res) => {
         `)
         .eq('plan_id', planId)
         .eq('user_id', userId)
-        .order('start_time', { ascending: false });
+        .order('start_time', { ascending: false })
+        .range((page - 1) * pageSize, page * pageSize - 1);
       if (error) throw new Error(error.message);
       const records = (data ?? []).map((r: any) => ({
         ...r,
         executor: Array.isArray(r.executor) ? r.executor[0] : r.executor,
       }));
-      res.json({ records });
+      res.json({ records, total, page, pageSize });
     } else {
-      const records = await dbSelect<any>('training_records', 'plan_id', planId, userId);
-      res.json({ records });
+      const allRecords = await dbSelect<any>('training_records', 'plan_id', planId, userId);
+      const total = allRecords.length;
+      const start = (page - 1) * pageSize;
+      const records = allRecords.slice(start, start + pageSize);
+      res.json({ records, total, page, pageSize });
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

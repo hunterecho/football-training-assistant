@@ -96,6 +96,10 @@ export function ShareDetail() {
   const [currentRecordId, setCurrentRecordId] = useState<string | null>(null);
   const [showShareToast, setShowShareToast] = useState(false);
   const [userRecords, setUserRecords] = useState<TrainingRecord[]>([]);
+  const [recordsTotal, setRecordsTotal] = useState(0);
+  const [recordsPage, setRecordsPage] = useState(1);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const recordsPageSize = 10;
   const [completedDrillsCount, setCompletedDrillsCount] = useState(0);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [sharerName, setSharerName] = useState('');
@@ -155,6 +159,30 @@ export function ShareDetail() {
     prevDrillIndexRef.current = -1;
   }, []);
 
+  // 分页加载训练记录（reset=true 时重置列表，false 时追加下一页）
+  const loadRecords = useCallback(async (page: number, pid: string, reset: boolean) => {
+    setRecordsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const res = await api.get<{ records: unknown[]; total: number }>(`/records/by-plan/${pid}?page=${page}&pageSize=${recordsPageSize}`);
+      const records = (res.data.records ?? []).map(mapRecordFromServer);
+      setUserRecords(prev => reset ? records : [...prev, ...records]);
+      setRecordsTotal(res.data.total ?? records.length);
+      setRecordsPage(page);
+    } catch {
+      // 静默失败
+    } finally {
+      setRecordsLoading(false);
+    }
+  }, [recordsPageSize]);
+
+  // 无限下拉：加载下一页
+  const loadMoreRecords = useCallback(() => {
+    if (recordsLoading || userRecords.length >= recordsTotal) return;
+    loadRecords(recordsPage + 1, planId, false);
+  }, [recordsLoading, userRecords.length, recordsTotal, recordsPage, planId, loadRecords]);
+
   useEffect(() => {
     if (!planId) {
       setError('无效的分享链接');
@@ -164,10 +192,8 @@ export function ShareDetail() {
     
     const fetchData = async () => {
       try {
-        const [shareRes, recordsRes] = await Promise.all([
-          api.get<{ plan: unknown; template: unknown; terminated?: boolean; sharerName?: string }>(`/records/share/${planId}`).catch(() => null),
-          token ? api.get<{ records: unknown[] }>(`/records/by-plan/${planId}`).catch(() => null) : Promise.resolve(null),
-        ]);
+        // 分享信息单独请求
+        const shareRes = await api.get<{ plan: unknown; template: unknown; terminated?: boolean; sharerName?: string }>(`/records/share/${planId}`).catch(() => null);
         
         if (shareRes?.data) {
           setPlan(mapPlanFromServer(shareRes.data.plan));
@@ -177,17 +203,10 @@ export function ShareDetail() {
         } else {
           setError('分享内容不存在');
         }
-        
-        if (recordsRes?.data?.records) {
-          const records = recordsRes.data.records.map(mapRecordFromServer);
-          setUserRecords(records);
-          
-          const inProgress = records.find(r => r.status === 'in_progress' && r.userId === user?.id);
-          if (inProgress) {
-            setCurrentRecordId(inProgress.id);
-            const completed = inProgress.completedDrills ?? 0;
-            setCompletedDrillsCount(completed);
-          }
+
+        // 训练记录分页加载（第1页）
+        if (token) {
+          await loadRecords(1, planId, true);
         }
       } catch {
         setError('无法获取分享内容');
@@ -197,7 +216,18 @@ export function ShareDetail() {
     };
     
     fetchData();
-  }, [planId, token]);
+  }, [planId, token, loadRecords]);
+
+  // 训练记录加载后，检查是否有进行中的记录
+  useEffect(() => {
+    if (!userRecords.length || session.status !== 'idle') return;
+    const inProgress = userRecords.find(r => r.status === 'in_progress' && r.userId === user?.id);
+    if (inProgress) {
+      setCurrentRecordId(inProgress.id);
+      const completed = inProgress.completedDrills ?? 0;
+      setCompletedDrillsCount(completed);
+    }
+  }, [userRecords, user, session.status]);
 
   useEffect(() => {
     if (!template || !userRecords.length || session.status !== 'idle') return;
@@ -397,11 +427,7 @@ export function ShareDetail() {
             completed_at: new Date(endTime).toISOString(),
           }).then(() => {
             if (token) {
-              api.get<{ records: unknown[] }>(`/records/by-plan/${planId}`).then((recordsRes) => {
-                if (recordsRes?.data?.records) {
-                  setUserRecords(recordsRes.data.records.map(mapRecordFromServer));
-                }
-              }).catch(() => {});
+              loadRecords(1, planId, true);
             }
           });
         }
@@ -607,6 +633,7 @@ export function ShareDetail() {
       if (res.data?.record) {
         const record = mapRecordFromServer(res.data.record);
         setUserRecords(prev => [record, ...prev]);
+        setRecordsTotal(prev => prev + 1);
         return record.id;
       }
     } catch {
@@ -706,11 +733,8 @@ export function ShareDetail() {
       setCurrentRecordId(null);
     }
     
-    const [recordsRes] = await Promise.all([
-      token ? api.get<{ records: unknown[] }>(`/records/by-plan/${planId}`).catch(() => null) : Promise.resolve(null),
-    ]);
-    if (recordsRes?.data?.records) {
-      setUserRecords(recordsRes.data.records.map(mapRecordFromServer));
+    if (token) {
+      await loadRecords(1, planId, true);
     }
     
     setSession({ ...initialSession, restDuration: customRestDuration > 0 ? customRestDuration : 0 });
@@ -812,58 +836,56 @@ export function ShareDetail() {
   return (
     <div className="min-h-screen bg-theme-bg">
       <div className="mx-auto w-full max-w-lg">
-        {sharerName && (
-          <div className="flex items-center justify-center mb-3 pt-4">
-            <div className="flex items-center gap-2 text-xs text-theme-text-muted bg-theme-bg-card-light backdrop-blur-sm px-3 py-1.5 rounded-full">
-              <UserCircle className="w-4 h-4 text-theme-accent" />
-              <span><span className="text-theme-accent font-medium">{sharerName}</span> 分享的训练计划</span>
+        {/* 顶部一行：左边分享者提示 + 右边退出登录（节省纵向空间） */}
+        <div className="px-4 pt-3 pb-1 flex items-center justify-between gap-3">
+          {sharerName ? (
+            <div className="flex items-center gap-2 text-xs text-theme-text-muted bg-theme-bg-card-light backdrop-blur-sm px-2.5 py-1 rounded-full">
+              <UserCircle className="w-3.5 h-3.5 text-theme-accent" />
+              <span><span className="text-theme-accent font-medium">{sharerName}</span> 分享</span>
             </div>
-          </div>
-        )}
+          ) : <div />}
+          <button
+            onClick={() => {
+              logout();
+              resetSession();
+              navigate('/login', { replace: true });
+            }}
+            className="flex items-center gap-1 text-xs text-theme-text-muted hover:text-theme-text-secondary px-2 py-1 rounded transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            退出登录
+          </button>
+        </div>
         
         <div className="mx-auto w-full max-w-lg p-4">
-          <div className="flex justify-end mb-1">
-            <button
-              onClick={() => {
-                logout();
-                resetSession();
-                navigate('/login', { replace: true });
-              }}
-              className="flex items-center gap-1 text-xs text-theme-text-muted hover:text-theme-text-secondary px-2 py-1 rounded transition-colors"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              退出登录
-            </button>
-          </div>
-          
-          <div className="bg-theme-bg-card-subtle backdrop-blur-sm rounded-2xl p-6 mb-4">
-            <div className="mb-4">
+          <div className="bg-theme-bg-card-subtle backdrop-blur-sm rounded-2xl p-4 mb-2">
+            <div className="mb-2">
               <h1 className="text-xl font-bold">{plan.title}</h1>
               <p className="text-theme-text-muted text-sm">{template.name}</p>
             </div>
             
             <div className="flex items-center gap-6 text-sm text-theme-text-muted">
-              <div className="flex items-center gap-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex items-center gap-2 whitespace-nowrap">
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                <span>{plan.date || '无日期'}</span>
+                <span className="truncate">{plan.date || '无日期'}</span>
               </div>
               
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4" />
+              <div className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                <Users className="w-4 h-4 shrink-0" />
                 <span>{userRecords.length} 次记录</span>
               </div>
             </div>
           </div>
 
           <div className="bg-white rounded-t-3xl shadow-2xl min-h-[60vh]">
-            <div className="p-4 pb-32">
+            <div className="p-3 pb-32">
               {sessionDrills.length === 0 || session.status === 'idle' || session.status === 'finished' || !drill ? (
-                // ⚠️ 减少留白：gap-6→gap-4, py-8→py-5
-                <div className="flex flex-col items-center gap-4 py-5 text-center">
-                  {/* 训练计时卡片：p-6→p-4, mt-2→mt-1，紧凑显示 */}
-                  <div className="w-full max-w-sm rounded-3xl border border-theme-border bg-white p-4">
+                // 紧凑布局：py-5→py-4, gap-4→gap-3
+                <div className="flex flex-col items-center gap-3 py-4 text-center">
+                  {/* 训练计时卡片：p-4→p-3，更紧凑 */}
+                  <div className="w-full max-w-sm rounded-2xl border border-theme-border bg-white p-3">
                     <div className="text-xs uppercase tracking-widest text-theme-accent">
                       训练计时
                     </div>
@@ -1162,17 +1184,15 @@ export function ShareDetail() {
                 </>
               )}
 
-              <div className="mt-6">
-                <div className="flex items-center gap-2 mb-4">
+              <div className="mt-4">
+                <div className="flex items-center gap-2 mb-2">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
                   <h3 className="font-semibold">训练目录</h3>
                 </div>
                 
-                {/* ⚠️ pt-2：防止第一个卡片 ring-2 边框顶部被父容器切边（用户截图绿色条被截断）
-                     pb-2 保持卡片底部不被父容器 pb 切边 */}
-                <div className="flex gap-3 overflow-x-auto pt-2 pb-3 -mx-4 px-4 scrollbar-hide">
+                <div className="flex gap-3 overflow-x-auto pt-2 pb-3 -mx-3 px-3 scrollbar-hide">
                   {template.drills.map((drill, index) => {
                     const isActive = session.drillIndex === index;
                     const isCompleted = index < completedDrillsCount;
@@ -1189,9 +1209,9 @@ export function ShareDetail() {
                               : 'bg-theme-bg-card hover:bg-theme-bg-card-subtle'
                         } ${(session.status === 'running' || session.status === 'paused') && !isActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                       >
-                        {/* 增加垂直padding（p-3 → p-4）：防止框框上边一行的数字显示被截断 */}
-                        <div className="p-4">
-                          <div className="flex items-center justify-between mb-2">
+                        {/* 滚动容器已经 pt-2 防止 ring 切边，这里 p-3 足够，减少卡片内留白 */}
+                        <div className="p-3">
+                          <div className="flex items-center justify-between mb-1.5">
                             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${
                               isActive 
                                 ? 'bg-theme-accent text-white' 
@@ -1225,13 +1245,37 @@ export function ShareDetail() {
                 <div className="mt-6 bg-theme-bg-card-subtle backdrop-blur-sm rounded-2xl p-4">
                   <h3 className="font-semibold mb-4 flex items-center gap-2">
                     <Clock className="w-5 h-5" />
-                    我的训练记录 ({userRecords.length})
+                    我的训练记录 ({recordsTotal})
                   </h3>
                   <div className="space-y-2">
                     {userRecords.map((record) => (
                       <RecordItem key={record.id} record={record} template={template} />
                     ))}
                   </div>
+                  {/* 无限下拉加载：底部哨兵元素 + IntersectionObserver */}
+                  {userRecords.length < recordsTotal && (
+                    <div
+                      ref={(el) => {
+                        if (el && !el.dataset.observed) {
+                          el.dataset.observed = '1';
+                          const observer = new IntersectionObserver((entries) => {
+                            if (entries[0]?.isIntersecting) {
+                              loadMoreRecords();
+                            }
+                          }, { rootMargin: '100px' });
+                          observer.observe(el);
+                        }
+                      }}
+                      className="py-4 text-center text-sm text-theme-text-muted"
+                    >
+                      {recordsLoading ? '加载中…' : '下滑加载更多'}
+                    </div>
+                  )}
+                  {userRecords.length >= recordsTotal && recordsTotal > recordsPageSize && (
+                    <div className="py-3 text-center text-xs text-theme-text-muted">
+                      没有更多记录了
+                    </div>
+                  )}
                 </div>
               )}
             </div>
