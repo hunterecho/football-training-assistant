@@ -87,10 +87,6 @@ async function callLLM(source: string, settings: LLMSettings): Promise<LLMParsed
     endpoint += 'chat/completions';
   }
 
-  console.log(`[LLM] Calling endpoint: ${endpoint}`);
-  console.log(`[LLM] Model: ${settings.model}`);
-  console.log(`[LLM] Input length: ${source.length} chars`);
-
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
     console.error(`[LLM] Timeout after ${LLM_TIMEOUT}ms`);
@@ -108,8 +104,6 @@ async function callLLM(source: string, settings: LLMSettings): Promise<LLMParsed
       signal: controller.signal,
     });
 
-    console.log(`[LLM] Response status: ${res.status}`);
-
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       console.error(`[LLM] Error response: ${errText}`);
@@ -122,17 +116,10 @@ async function callLLM(source: string, settings: LLMSettings): Promise<LLMParsed
       usage?: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number };
     };
 
-    if (data.usage) {
-      console.log(`[LLM] Usage: ${data.usage.prompt_tokens} prompt + ${data.usage.completion_tokens} completion = ${data.usage.total_tokens} total`);
-    }
-
     const content =
       data.choices?.[0]?.message?.content ??
       (data as { content?: string }).content ??
       '';
-
-    console.log(`[LLM] Response content length: ${content.length} chars`);
-    console.log(`[LLM] Response content preview: ${content.slice(0, 200)}...`);
 
     if (!content.trim()) {
       throw new Error('LLM 返回为空');

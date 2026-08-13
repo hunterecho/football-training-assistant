@@ -874,8 +874,6 @@ export const useTrainingStore = create<TrainingStore>()(
                     const memTpl = currentMap.get(mapped.id);
                     if (memTpl?.audioManifest &&
                       Object.keys(memTpl.audioManifest.audioMap ?? {}).length > 0) {
-                      console.log('[sync] 保留内存 audioManifest for template:', mapped.id,
-                        '(DB 中为空，内存中有', Object.keys(memTpl.audioManifest.audioMap).length, '条)');
                       return { ...mapped, audioManifest: memTpl.audioManifest };
                     }
                   }

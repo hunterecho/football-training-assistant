@@ -407,7 +407,6 @@ export function ShareDetail() {
     if (session.status === 'finished' && !lastEndedRef.current) {
       lastEndedRef.current = true;
       const isLast = session.drillIndex >= template.drills.length - 1;
-      console.log('[ShareDetail] status=finished detected:', { isLast, drillIndex: session.drillIndex, drillsLen: template.drills.length });
       if (isLast) {
         // 先 clear 清除可能残留的倒计时数字，再入队"训练完成"
         clear();

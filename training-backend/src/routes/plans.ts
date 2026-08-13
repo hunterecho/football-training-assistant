@@ -7,13 +7,7 @@ const router = express.Router();
 
 router.use(authRequired);
 
-function logTime(label: string, start: number) {
-  const elapsed = (Date.now() - start).toFixed(2);
-  console.log(`[PERF] ${label}: ${elapsed}ms`);
-}
-
 router.get('/', async (req, res) => {
-  const overallStart = Date.now();
   try {
     const page = parseInt(req.query.page as string) || 1;
     const pageSize = parseInt(req.query.pageSize as string) || 20;
@@ -145,7 +139,6 @@ router.get('/', async (req, res) => {
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
 
-      logTime('overall /api/plans (supabase)', overallStart);
       res.json({ plans, total, page, pageSize });
     } else {
       const [plans, total] = await Promise.all([
@@ -165,12 +158,10 @@ router.get('/', async (req, res) => {
         return { ...plan, drills: template?.drills || plan.drills || [] };
       }).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-      logTime('overall /api/plans (memory)', overallStart);
       res.json({ plans: processedPlans, total, page, pageSize });
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.log(`[PERF] /api/plans ERROR: ${msg}`);
     res.status(500).json({ error: msg });
   }
 });

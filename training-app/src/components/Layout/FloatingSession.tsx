@@ -110,20 +110,6 @@ export function FloatingSession() {
   const manifestReadyRef = useRef(false);
   manifestReadyRef.current = manifestReady;
 
-  // 诊断日志
-  useEffect(() => {
-    console.log('[FloatingSession] template lookup:', {
-      found: !!template,
-      templateId: template?.id,
-      hasAudioManifest: !!template?.audioManifest,
-      audioMapCount: Object.keys(template?.audioManifest?.audioMap ?? {}).length,
-      activeId,
-      activePlanId,
-      activeRecordId,
-      manifestReady,
-    });
-  }, [template, activeId, activePlanId, activeRecordId, manifestReady]);
-
   const sessionDrills = useMemo((): Drill[] => {
     if (activeRecordId) {
       const activeRecord = records.find((r) => r.id === activeRecordId);
@@ -375,7 +361,6 @@ export function FloatingSession() {
     if (session.status === 'finished' && !lastEndedRef.current) {
       lastEndedRef.current = true;
       const isLast = session.drillIndex >= sessionDrills.length - 1;
-      console.log('[FloatingSession] status=finished detected:', { isLast, drillIndex: session.drillIndex, drillsLen: sessionDrills.length });
       if (isLast) {
         // ⚠️ 关键：先 clear 再 enqueue，清除可能残留的倒计时数字（"1" 等 high priority 音频）
         // 倒计时数字用 high priority 会清空队列并立即播放，"训练完成" 是 normal priority

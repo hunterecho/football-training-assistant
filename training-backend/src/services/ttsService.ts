@@ -87,7 +87,6 @@ export async function generateAndUploadAudio(
       .from(TTS_BUCKET)
       .list('', { search: `${hash}.mp3` });
     if (existingList && existingList.length > 0) {
-      console.log(`[tts] audio already exists: ${path}`);
       return { success: true, url: publicUrl, hash };
     }
   } catch {
@@ -146,7 +145,6 @@ export async function generateAndUploadAudio(
       return { success: false, error: `上传失败: ${uploadError.message}`, stage: 'upload' };
     }
 
-    console.log(`[tts] generated: ${path} (${audioBuffer.length} bytes)`);
     return { success: true, url: publicUrl, hash };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -208,7 +206,6 @@ export async function ensureSystemManifest(userId: string): Promise<AudioManifes
   const audioCount = Object.keys(result.manifest.audioMap).length;
   if (audioCount > 0) {
     cachedSystemManifest = result.manifest;
-    console.log(`[tts] system manifest ready: ${audioCount}/${texts.length} texts`);
   } else {
     console.warn(`[tts] system manifest 生成失败 (0/${texts.length})，不缓存，下次重试`);
   }
@@ -337,8 +334,6 @@ export async function ensureTtsBucket(): Promise<void> {
       });
       if (error) {
         console.warn('[tts] create bucket failed:', error.message);
-      } else {
-        console.log('[tts] bucket created (public):', TTS_BUCKET);
       }
     } else {
       // 确保已存在的 bucket 是 public
@@ -350,8 +345,6 @@ export async function ensureTtsBucket(): Promise<void> {
         });
         if (error) {
           console.warn('[tts] update bucket to public failed:', error.message);
-        } else {
-          console.log('[tts] bucket updated to public:', TTS_BUCKET);
         }
       }
     }

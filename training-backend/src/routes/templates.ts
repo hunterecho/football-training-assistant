@@ -66,7 +66,28 @@ router.patch('/:id', async (req, res) => {
 // DELETE /api/templates/:id
 router.delete('/:id', async (req, res) => {
   try {
-    await dbDelete('templates', req.params.id, req.auth!.userId);
+    const templateId = req.params.id;
+    const userId = req.auth!.userId;
+
+    // 检查是否有依赖该模板的计划
+    const dependentPlans = await dbSelect('plans', 'template_id', templateId, userId);
+    if (dependentPlans.length > 0) {
+      res.status(409).json({
+        error: `该模板已被 ${dependentPlans.length} 个训练计划使用，无法删除。请先删除相关计划。`,
+      });
+      return;
+    }
+
+    // 检查是否有依赖该模板的训练记录
+    const dependentRecords = await dbSelect('training_records', 'template_id', templateId, userId);
+    if (dependentRecords.length > 0) {
+      res.status(409).json({
+        error: `该模板已有 ${dependentRecords.length} 条训练记录，无法删除。`,
+      });
+      return;
+    }
+
+    await dbDelete('templates', templateId, userId);
     res.json({ ok: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

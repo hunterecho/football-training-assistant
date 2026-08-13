@@ -101,8 +101,6 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
     const id = (templateId || planId)!;
     const currentFallback = fallbackManifestRef.current;
 
-    console.log('[tts] 开始加载 manifest:', { id, type, hasFallback, epoch: myEpoch });
-
     Promise.all([
       api.get<{ success: boolean; manifest: AudioManifest | null }>(`/tts/manifest/${id}?type=${type}`)
         .then((res) => {
@@ -111,7 +109,6 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
             return null;
           }
           const m = res.data?.manifest ?? null;
-          console.log('[tts] DB manifest audioMap 条目数:', Object.keys(m?.audioMap ?? {}).length);
           return m;
         }),
       api.get<{ success: boolean; manifest: AudioManifest }>('/tts/system')
@@ -121,14 +118,12 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
             return { voice: '', rate: '', generatedAt: '', audioMap: {} } as AudioManifest;
           }
           const m = res.data?.manifest ?? { voice: '', rate: '', generatedAt: '', audioMap: {} } as AudioManifest;
-          console.log('[tts] system manifest audioMap 条目数:', Object.keys(m.audioMap ?? {}).length);
           return m;
         }),
     ])
       .then(([templateManifest, systemManifest]) => {
         // ⚠️ 关键：如果这不是最新的请求，跳过（旧 Promise 的结果）
         if (myEpoch !== requestEpochRef.current) {
-          console.log('[tts] 旧请求结果被丢弃 (epoch mismatch):', myEpoch, '→', requestEpochRef.current);
           return;
         }
 
@@ -136,7 +131,6 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
         let effectiveTemplateManifest = templateManifest;
         const dbCount = Object.keys(templateManifest?.audioMap ?? {}).length;
         if (dbCount === 0 && currentFallback) {
-          console.log('[tts] DB manifest 为空，使用内存 fallback manifest（store）');
           effectiveTemplateManifest = currentFallback;
         }
 
@@ -159,16 +153,6 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
           audioMap: mergedAudioMap,
         };
 
-        const mergedCount = Object.keys(mergedAudioMap).length;
-        console.log('[tts] manifest loaded:', {
-          dbCount,
-          templateCount: Object.keys(templateAudioMap).length,
-          systemCount: Object.keys(systemManifest?.audioMap ?? {}).length,
-          mergedCount,
-          usedFallback: effectiveTemplateManifest !== templateManifest,
-          epoch: myEpoch,
-        });
-
         // 通过 ref 调用，避免依赖 speech 对象引用
         setAudioManifestRef.current(merged);
 
@@ -185,7 +169,6 @@ export function useTtsManifest({ speech, templateId, planId, enabled = true, fal
         setManifestError(msg);
         // 即使失败也尝试用 fallback
         if (currentFallback) {
-          console.log('[tts] API 失败，使用内存 fallback manifest');
           setAudioManifestRef.current(currentFallback);
           setTemplateAudioMissing(Object.keys(currentFallback.audioMap ?? {}).length === 0);
         } else {

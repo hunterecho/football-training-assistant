@@ -93,21 +93,6 @@ export function SessionTimer({ onBack }: { onBack?: () => void }) {
   }, [templates, activeId, activeRecordId, records, plans, activePlanId]);
   const drill = template?.drills[session.drillIndex] ?? null;
 
-  // 诊断日志：确认 template 查找结果和 audioManifest 状态
-  useEffect(() => {
-    console.log('[SessionTimer] template lookup:', {
-      found: !!template,
-      templateId: template?.id,
-      hasAudioManifest: !!template?.audioManifest,
-      audioMapCount: Object.keys(template?.audioManifest?.audioMap ?? {}).length,
-      activeId,
-      activePlanId,
-      activeRecordId,
-      templatesCount: templates.length,
-      plansCount: plans.length,
-    });
-  }, [template, activeId, activePlanId, activeRecordId, templates.length, plans.length]);
-
   // 加载 TTS manifest：
   // 1. GET 模板已预生成的 manifest（模板编辑页生成并存在 DB）
   // 2. 并行 GET 系统级公共语音（倒计时数字、"休息 X 秒"、"训练完成"等）

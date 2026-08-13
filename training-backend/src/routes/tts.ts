@@ -219,11 +219,6 @@ router.post('/pregenerate', async (req, res) => {
             console.warn('[tts] write-back matched 0 rows:', storageTable, attemptedStorageId);
           } else {
             persisted = true;
-            console.log(
-              `[tts] audio_manifest persisted to ${storageTable}/${attemptedStorageId},`,
-              `${preResult.successCount}/${preResult.totalTexts} audios`,
-              `(status=${status} ${statusText || ''})`
-            );
           }
         }
       } catch (e) {

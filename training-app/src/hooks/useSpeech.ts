@@ -285,7 +285,6 @@ export function useSpeech(options: UseSpeechOptions) {
       const finish = (reason: string) => {
         if (resolved) return;
         resolved = true;
-        console.log('[speech] playAudioItem finish:', reason, 'url-tail=', url.slice(-30));
         if (pollTimer) window.clearInterval(pollTimer);
         if (hardTimeout) window.clearTimeout(hardTimeout);
         audio.onended = null;
@@ -317,11 +316,9 @@ export function useSpeech(options: UseSpeechOptions) {
       let isBuffering = false;
       audio.onwaiting = () => {
         isBuffering = true;
-        console.log('[speech] audio buffering (waiting event)');
       };
       audio.onplaying = () => {
         isBuffering = false;
-        console.log('[speech] audio playing, duration=', audio.duration);
       };
 
       audio.src = url;
@@ -372,9 +369,6 @@ export function useSpeech(options: UseSpeechOptions) {
       const playPromise = audio.play();
       if (playPromise && typeof playPromise.catch === 'function') {
         playPromise
-          .then(() => {
-            console.log('[speech] playAudioItem play() ok, duration=', audio.duration, 'stagnantCount=', stagnantCount);
-          })
           .catch((err1) => {
             console.warn('[speech] playAudioItem first play rejected:', err1?.message || String(err1));
             // 重试一次：重新解锁 AudioContext
@@ -420,7 +414,6 @@ export function useSpeech(options: UseSpeechOptions) {
 
     if (next.audioUrl) {
       // 预生成音频：串行播放
-      console.log('[speech] ✅ 播放预生成音频:', next.text.slice(0, 40));
       // 取消可能正在播放的 speechSynthesis
       if (supported && window.speechSynthesis.speaking) {
         try { window.speechSynthesis.cancel(); } catch { /* noop */ }
@@ -428,7 +421,6 @@ export function useSpeech(options: UseSpeechOptions) {
       await playAudioItem(next.audioUrl);
     } else if (fallbackBeepRef.current || !supported) {
       // 兜底提示音：根据文本内容选择提示音类型
-      console.log('[speech] 🔔 播放兜底提示音:', next.text.slice(0, 40));
       const lower = next.text.toLowerCase();
       if (lower.includes('开始') || lower.includes('现在')) {
         playFallbackBeep('start');
@@ -550,7 +542,6 @@ export function useSpeech(options: UseSpeechOptions) {
       }
     }
     audioMapRef.current = map;
-    console.log('[speech] setAudioManifest: audioMap 条目数 =', map.size, '(manifest audioMap keys =', Object.keys(manifest?.audioMap ?? {}).length, ')');
   }, []);
 
   const enqueue = useCallback(
@@ -564,9 +555,7 @@ export function useSpeech(options: UseSpeechOptions) {
         audioUrl = audioMapRef.current.get(normalizeText(text));
       }
 
-      if (audioUrl) {
-        console.log('[speech] enqueue hit:', text.slice(0, 40));
-      } else {
+      if (!audioUrl) {
         console.warn('[speech] enqueue miss:', text.slice(0, 40), '| audioMap.size=', audioMapRef.current.size);
       }
 

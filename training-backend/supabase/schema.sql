@@ -36,7 +36,7 @@ create index if not exists idx_templates_public on public.templates(is_public) w
 create table if not exists public.plans (
   id text primary key default 'plan_' || gen_random_uuid()::text,
   user_id text not null references public.users(id) on delete cascade,
-  template_id text references public.templates(id) on delete restrict,
+  template_id text references public.templates(id) on delete set null,
   title text not null,
   date text,
   status text not null default 'planned',
@@ -56,7 +56,7 @@ create table if not exists public.training_records (
   id text primary key default 'record_' || gen_random_uuid()::text,
   user_id text not null references public.users(id) on delete cascade,
   plan_id text references public.plans(id) on delete cascade,
-  template_id text not null references public.templates(id) on delete restrict,
+  template_id text references public.templates(id) on delete set null,
   title text not null,
   status text not null default 'planned',
   start_time timestamptz,

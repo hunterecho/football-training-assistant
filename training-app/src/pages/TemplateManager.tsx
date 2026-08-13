@@ -379,7 +379,6 @@ function VoiceStatusRow({
 
       const { text, url } = playlist[currentIndex];
       setPreviewIndex(currentIndex);
-      console.log(`[preview] ${currentIndex + 1}/${playlist.length} text="${text}" url=${url?.slice(0, 80)}...`);
 
       // 清除上一个超时
       if (timeoutId) window.clearTimeout(timeoutId);
@@ -394,7 +393,6 @@ function VoiceStatusRow({
       };
 
       audio.onended = () => {
-        console.log(`[preview] ${currentIndex + 1} ended`);
         goNext();
       };
       audio.onerror = (e) => {
@@ -406,7 +404,6 @@ function VoiceStatusRow({
       audio.load();
 
       audio.play().then(() => {
-        console.log(`[preview] ${currentIndex + 1} play() resolved, duration=${audio.duration}`);
         // 超时保护：最长 10 秒后自动跳到下一条
         timeoutId = window.setTimeout(() => {
           console.warn(`[preview] ${currentIndex + 1} timeout, force next`);
