@@ -11,11 +11,20 @@ export function formatTime(seconds: number): string {
 
 export function formatDurationChinese(seconds: number): string {
   if (seconds <= 0) return '0 秒';
-  const m = Math.floor(seconds / 60);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
   const s = Math.round(seconds % 60);
-  if (m === 0) return `${s} 秒`;
-  if (s === 0) return `${m} 分钟`;
-  return `${m} 分 ${s} 秒`;
+  if (h > 0) {
+    if (m === 0 && s === 0) return `${h} 小时`;
+    if (s === 0) return `${h} 小时 ${m} 分钟`;
+    if (m === 0) return `${h} 小时 ${s} 秒`;
+    return `${h} 小时 ${m} 分 ${s} 秒`;
+  }
+  if (m > 0) {
+    if (s === 0) return `${m} 分钟`;
+    return `${m} 分 ${s} 秒`;
+  }
+  return `${s} 秒`;
 }
 
 export function parseDuration(text: string): number | null {

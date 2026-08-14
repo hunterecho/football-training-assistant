@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useTrainingStore, toDateKey } from '@/store/trainingStore';
 import { useAuthStore } from '@/store/authStore';
-import { formatDuration } from '@/utils/duration';
+import { formatDuration, formatDurationChinese } from '@/utils/duration';
 import { Plus,
   Calendar as CalendarIcon,
   Trash2,
@@ -854,17 +854,17 @@ function PlanWithRecordsCard({
     >
       <div className="flex items-start justify-between gap-2 p-4">
         <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-2">
+          <div className="flex items-start gap-2 min-h-[3rem]">
             <h3
               className={cn(
-                'text-base font-semibold leading-snug line-clamp-2 flex-1',
+                'text-base font-semibold leading-snug line-clamp-2 flex-1 py-[0.125rem]',
                 isCompleted || isSkipped ? 'text-theme-text-muted' : isShareDeleted ? 'text-gray-400 line-through' : 'text-theme-text',
                 isCompleted && 'line-through'
               )}
             >
               {plan.title}
             </h3>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1 pt-[0.125rem]">
               {isCompleted && (
                 <span className="rounded-full bg-theme-accent/20 px-2 py-0.5 text-[10px] font-medium text-theme-accent">
                   已完成
@@ -892,7 +892,7 @@ function PlanWithRecordsCard({
               )}
             </div>
           </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-theme-text-muted">
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-theme-text-muted">
             {(isPlanned || isTerminated) && plan.date && (
               <span className="flex items-center gap-1">
                 <CalendarIcon className="h-3 w-3" />
@@ -900,16 +900,7 @@ function PlanWithRecordsCard({
               </span>
             )}
             {plan.drills && plan.drills.length > 0 && (
-              <>
-                <span>{plan.drills.length} 个环节</span>
-                <span>总时长 {formatDuration(total)}</span>
-              </>
-            )}
-            {records.length > 0 && (
-              <span className="flex items-center gap-1">
-                <Users className="h-3 w-3" />
-                {records.length} 次训练记录
-              </span>
+              <span>总时长 {formatDurationChinese(total)}</span>
             )}
           </div>
         </div>
