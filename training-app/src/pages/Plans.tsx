@@ -852,48 +852,45 @@ function PlanWithRecordsCard({
           : 'border-theme-border bg-theme-bg-card-light'
       )}
     >
-      <div className="flex items-start justify-between gap-3 p-4">
+      <div className="flex items-start justify-between gap-2 p-4">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-start gap-2">
             <h3
               className={cn(
-                'truncate text-base font-semibold',
+                'text-base font-semibold leading-snug line-clamp-2 flex-1',
                 isCompleted || isSkipped ? 'text-theme-text-muted' : isShareDeleted ? 'text-gray-400 line-through' : 'text-theme-text',
                 isCompleted && 'line-through'
               )}
             >
               {plan.title}
             </h3>
-            {isCompleted && (
-              <span className="rounded-full bg-theme-accent/20 px-2 py-0.5 text-[10px] font-medium text-theme-accent">
-                已完成
-              </span>
-            )}
-            {isSkipped && (
-              <span className="rounded-full bg-theme-border px-2 py-0.5 text-[10px] font-medium text-theme-text-muted">
-                已跳过
-              </span>
-            )}
-            {inProgressRecord && !isCompleted && !isSkipped && !isTerminated && (
-              <span className="rounded-full bg-theme-accent/20 px-2 py-0.5 text-[10px] font-medium text-theme-accent">
-                训练中
-              </span>
-            )}
-            {isShared && !isShareDeleted && !isShareTerminated && (
-              <span className="rounded-full bg-theme-warning/20 px-2 py-0.5 text-[10px] font-medium text-theme-warning">
-                {plan.sharerName ? `${plan.sharerName}分享` : '他人分享'}
-              </span>
-            )}
-            {isShareDeleted && (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-600">
-                已删除
-              </span>
-            )}
-            {isShareTerminated && (
-              <span className="rounded-full bg-yellow-200 px-2 py-0.5 text-[10px] font-medium text-yellow-700">
-                已停止分享
-              </span>
-            )}
+            <div className="flex shrink-0 items-center gap-1">
+              {isCompleted && (
+                <span className="rounded-full bg-theme-accent/20 px-2 py-0.5 text-[10px] font-medium text-theme-accent">
+                  已完成
+                </span>
+              )}
+              {isSkipped && (
+                <span className="rounded-full bg-theme-border px-2 py-0.5 text-[10px] font-medium text-theme-text-muted">
+                  已跳过
+                </span>
+              )}
+              {inProgressRecord && !isCompleted && !isSkipped && !isTerminated && (
+                <span className="rounded-full bg-theme-accent/20 px-2 py-0.5 text-[10px] font-medium text-theme-accent">
+                  训练中
+                </span>
+              )}
+              {isShareDeleted && (
+                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-600">
+                  已删除
+                </span>
+              )}
+              {isShareTerminated && (
+                <span className="rounded-full bg-yellow-200 px-2 py-0.5 text-[10px] font-medium text-yellow-700">
+                  已停止分享
+                </span>
+              )}
+            </div>
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-theme-text-muted">
             {(isPlanned || isTerminated) && plan.date && (
@@ -902,22 +899,21 @@ function PlanWithRecordsCard({
                 {fmtDateLabel(plan.date)}
               </span>
             )}
+            {plan.drills && plan.drills.length > 0 && (
+              <>
+                <span>{plan.drills.length} 个环节</span>
+                <span>总时长 {formatDuration(total)}</span>
+              </>
+            )}
             {records.length > 0 && (
               <span className="flex items-center gap-1">
                 <Users className="h-3 w-3" />
                 {records.length} 次训练记录
               </span>
             )}
-            {plan.drills && plan.drills.length > 0 && (
-              <>
-                <span>{plan.drills.length} 个环节</span>
-                <span>·</span>
-                <span>总时长 {formatDuration(total)}</span>
-              </>
-            )}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5">
             {(isPlanned || isTerminated) && plan.drills && plan.drills.length > 0 && !inProgressRecord && !hasAnyInProgress && (
               <button
                 onClick={onStart}

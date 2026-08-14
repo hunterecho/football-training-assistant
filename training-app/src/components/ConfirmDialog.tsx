@@ -9,6 +9,7 @@ type Props = {
   onConfirm: () => void;
   onCancel: () => void;
   tone?: 'danger' | 'default';
+  showCancel?: boolean;
 };
 
 export function ConfirmDialog({
@@ -20,6 +21,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   tone = 'danger',
+  showCancel = true,
 }: Props) {
   if (!open) return null;
   const confirmClass =
@@ -54,16 +56,18 @@ export function ConfirmDialog({
           </div>
         </div>
 
-        <div className="mt-5 flex gap-2">
-          <button
-            onClick={onCancel}
-            className="flex-1 rounded-xl border border-theme-border bg-theme-bg-card py-2.5 text-sm text-theme-text-secondary hover:bg-theme-bg-card"
-          >
-            {cancelText}
-          </button>
+        <div className={`mt-5 flex gap-2 ${!showCancel ? '' : ''}`}>
+          {showCancel && (
+            <button
+              onClick={onCancel}
+              className="flex-1 rounded-xl border border-theme-border bg-theme-bg-card py-2.5 text-sm text-theme-text-secondary hover:bg-theme-bg-card"
+            >
+              {cancelText}
+            </button>
+          )}
           <button
             onClick={onConfirm}
-            className={`flex-1 rounded-xl py-2.5 text-sm font-semibold ${confirmClass}`}
+            className={`${showCancel ? 'flex-1' : 'w-full'} rounded-xl py-2.5 text-sm font-semibold ${confirmClass}`}
           >
             {confirmText}
           </button>

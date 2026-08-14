@@ -71,6 +71,7 @@ export function TemplateManager() {
     cueId?: string;
     title: string;
   } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const createNew = () => {
     const tpl: Template = {
@@ -98,7 +99,9 @@ export function TemplateManager() {
     if (target === 'template') {
       const result = await removeTemplate(templateId);
       if (!result.ok) {
-        alert(result.error || '删除失败');
+        setErrorMessage(result.error || '删除失败');
+        setConfirmDelete(null);
+        return;
       }
     } else if (target === 'drill') {
       const tpl = templates.find((t) => t.id === templateId);
@@ -278,6 +281,16 @@ export function TemplateManager() {
         confirmText="删除"
         onConfirm={handleConfirm}
         onCancel={() => setConfirmDelete(null)}
+      />
+
+      <ConfirmDialog
+        open={!!errorMessage}
+        title={errorMessage || ''}
+        tone="default"
+        showCancel={false}
+        confirmText="确定"
+        onConfirm={() => setErrorMessage(null)}
+        onCancel={() => setErrorMessage(null)}
       />
     </div>
   );
