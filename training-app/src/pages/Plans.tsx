@@ -84,6 +84,7 @@ export function Plans() {
   const [expandedRecords, setExpandedRecords] = useState<Set<string>>(new Set());
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [editingDate, setEditingDate] = useState('');
+  const [editingTitle, setEditingTitle] = useState('');
   const [shareStatusMap, setShareStatusMap] = useState<Map<string, { exists: boolean; terminated: boolean }>>(new Map());
   const [showRestModal, setShowRestModal] = useState(false);
   const [restDuration, setRestDuration] = useState(0);
@@ -138,21 +139,30 @@ export function Plans() {
   };
 
   const handleEditPlanDate = (planId: string, currentDate: string) => {
+    const plan = plans.find(p => p.id === planId);
     setEditingPlanId(planId);
     setEditingDate(currentDate);
+    setEditingTitle(plan?.title || '');
   };
 
   const handleSavePlanDate = () => {
-    if (editingPlanId && editingDate) {
-      updatePlan(editingPlanId, { date: editingDate });
+    if (editingPlanId) {
+      const patch: Partial<import('@/types').TrainingPlan> = {};
+      if (editingDate) patch.date = editingDate;
+      if (editingTitle.trim()) patch.title = editingTitle.trim();
+      if (Object.keys(patch).length > 0) {
+        updatePlan(editingPlanId, patch);
+      }
     }
     setEditingPlanId(null);
     setEditingDate('');
+    setEditingTitle('');
   };
 
   const handleCancelEditPlanDate = () => {
     setEditingPlanId(null);
     setEditingDate('');
+    setEditingTitle('');
   };
 
   const togglePlanRecords = (id: string) => {
@@ -307,13 +317,16 @@ export function Plans() {
       {editingPlanId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6">
-            <h2 className="text-lg font-semibold text-theme-text">编辑训练日期</h2>
+            <h2 className="text-lg font-semibold text-theme-text">编辑计划</h2>
             <div className="mt-4 space-y-4">
               <div>
-                <label className="text-xs text-theme-text-muted">训练计划</label>
-                <div className="mt-1.5 rounded-xl border border-theme-border bg-theme-bg-card px-4 py-2 text-sm text-theme-text">
-                  {plans.find(p => p.id === editingPlanId)?.title || '未知计划'}
-                </div>
+                <label className="text-xs text-theme-text-muted">计划标题</label>
+                <input
+                  value={editingTitle}
+                  onChange={(e) => setEditingTitle(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-theme-border bg-theme-bg-card px-4 py-2 text-sm text-theme-text focus:border-theme-accent focus:outline-none"
+                  placeholder="输入计划标题"
+                />
               </div>
               <div>
                 <label className="text-xs text-theme-text-muted">训练日期</label>
@@ -334,7 +347,7 @@ export function Plans() {
               </button>
               <button
                 onClick={handleSavePlanDate}
-                disabled={!editingDate}
+                disabled={!editingDate && !editingTitle.trim()}
                 className="flex flex-1 items-center justify-center rounded-xl bg-theme-accent text-white px-4 py-2.5 text-sm font-semibold hover:bg-theme-accent-hover disabled:opacity-50"
               >
                 保存

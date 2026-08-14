@@ -384,6 +384,7 @@ export const useTrainingStore = create<TrainingStore>()(
         const token = useAuthStore.getState().token;
         if (token) {
           const body: Record<string, unknown> = {};
+          if (patch.title !== undefined) body.title = patch.title;
           if (patch.status) body.status = patch.status;
           if (patch.date) body.date = patch.date;
           if (patch.note !== undefined) body.note = patch.note;

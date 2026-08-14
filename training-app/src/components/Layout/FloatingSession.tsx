@@ -382,15 +382,11 @@ export function FloatingSession() {
     }
 
     // 休息开始时（第一帧）：只播报"开始休息"和"准备下一环节"
-    // 不播报"休息N秒"（用户自己设置的，有倒计时可见）和"休息结束"（有倒计时）
+    // 不播报下一环节标题（drill intro 会播报"现在开始 XXX"），避免重叠覆盖
     if (session.status === 'resting' && session.restRemaining >= session.restDuration - 0.05 && !firedRestStartRef.current) {
       firedRestStartRef.current = true;
-      const next = sessionDrills[session.drillIndex + 1];
       speech.enqueue('开始休息');
-      if (next?.title) {
-        speech.enqueue('准备下一环节');
-        speech.enqueue(next.title);
-      }
+      speech.enqueue('准备下一环节');
       beep({ enabled: settings.soundEnabled, frequency: 880, durationMs: 160 });
     }
 
@@ -401,6 +397,10 @@ export function FloatingSession() {
       if (restRemainingInt <= 5 && restRemainingInt !== lastRestSecRef.current) {
         lastRestSecRef.current = restRemainingInt;
         if (restRemainingInt > 0) {
+          // 第一个倒计时数字（5）先清空队列，确保倒计时立即开始不被前面残留语音阻塞
+          if (restRemainingInt === 5) {
+            speech.clear();
+          }
           speech.enqueue(`${restRemainingInt}`, 'normal');
           beep({ enabled: settings.soundEnabled, frequency: 440, durationMs: 80 });
         }
