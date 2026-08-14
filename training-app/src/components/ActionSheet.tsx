@@ -29,6 +29,8 @@ export function ActionSheet({ open, items, onCancel, title }: Props) {
 
   const lockBody = () => {
     if (bodyLockRef.current) return;
+    // 防御性：先做一次无状态清理，防止其他组件/旧实例留下的脏 fixed 样式
+    forceCleanupBodyLock();
     const scrollY = window.scrollY;
     const prevOverflow = document.body.style.overflow;
     const prevPosition = document.body.style.position;
@@ -40,15 +42,56 @@ export function ActionSheet({ open, items, onCancel, title }: Props) {
     document.body.style.width = '100%';
     bodyLockRef.current = { prevOverflow, prevPosition, prevTop, prevWidth, scrollY };
   };
+
+  /**
+   * 无状态、可安全重复调用的 body 锁清理。
+   * 解决两类场景：
+   *  1) 组件卸载 / 路由切换时 bodyLockRef 丢失，但 body 仍保留 fixed 样式 → 页面永远无法滚动
+   *  2) 上一个实例异常退出留下的脏状态
+   */
+  const forceCleanupBodyLock = () => {
+    if (typeof document === 'undefined') return;
+    // 如果当前没有 lock 记录，但 body 却还是 position:fixed / overflow:hidden
+    // → 说明是残留锁，做最保守的恢复：清掉相关内联样式，滚动位置尽量保留
+    if (
+      document.body.style.position === 'fixed' ||
+      document.body.style.overflow === 'hidden'
+    ) {
+      // 优先用现存的 scrollY 记录恢复
+      let restoreScrollY: number | null = null;
+      if (bodyLockRef.current) {
+        restoreScrollY = bodyLockRef.current.scrollY;
+      } else if (document.body.style.top) {
+        const topNum = parseInt(document.body.style.top, 10);
+        if (!Number.isNaN(topNum)) restoreScrollY = -topNum;
+      }
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      if (restoreScrollY != null) {
+        try {
+          window.scrollTo(0, restoreScrollY);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  };
+
   const unlockBody = () => {
     const s = bodyLockRef.current;
-    if (!s) return;
-    document.body.style.overflow = s.prevOverflow;
-    document.body.style.position = s.prevPosition;
-    document.body.style.top = s.prevTop;
-    document.body.style.width = s.prevWidth;
-    window.scrollTo(0, s.scrollY);
-    bodyLockRef.current = null;
+    if (s) {
+      document.body.style.overflow = s.prevOverflow;
+      document.body.style.position = s.prevPosition;
+      document.body.style.top = s.prevTop;
+      document.body.style.width = s.prevWidth;
+      window.scrollTo(0, s.scrollY);
+      bodyLockRef.current = null;
+    } else {
+      // 没有本地记录，但仍尝试清理可能残留的锁（幂等安全网）
+      forceCleanupBodyLock();
+    }
   };
 
   useEffect(() => {
@@ -63,8 +106,14 @@ export function ActionSheet({ open, items, onCancel, title }: Props) {
         setMounted(false);
         unlockBody();
       }, 300);
-      return () => window.clearTimeout(id);
+      return () => {
+        window.clearTimeout(id);
+        // 关键：如果动画期间组件被销毁/下一次 effect 触发了清理，
+        // 或者在等待 300ms 过程中快速再打开，都要先释放锁，避免残留
+        unlockBody();
+      };
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
@@ -83,6 +132,18 @@ export function ActionSheet({ open, items, onCancel, title }: Props) {
       window.removeEventListener('touchmove', preventDefault);
     };
   }, [visible, onCancel]);
+
+  /**
+   * 组件卸载兜底：无论 open 状态如何、有没有等待中的 setTimeout，
+   * 只要组件销毁就强制释放 body 滚动锁。
+   * 这是解决「路由切换/Tab 切换导致页面永久无法滚动」的关键修复。
+   */
+  useEffect(() => {
+    return () => {
+      unlockBody();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!mounted) return null;
 
