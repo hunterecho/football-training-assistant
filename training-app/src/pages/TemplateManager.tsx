@@ -173,21 +173,7 @@ export function TemplateManager() {
                     <p className="mt-1 text-xs text-theme-text-muted">{t.description}</p>
                   )}
                 </div>
-                <div className="flex flex-col gap-1">
-                  <button
-                    onClick={() => setEditing(t)}
-                    className="rounded-lg p-2 bg-theme-bg-card-subtle text-theme-text-secondary transition-colors hover:bg-theme-bg-card"
-                    aria-label="编辑"
-                  >
-                    <Edit3 className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => duplicateTemplate(t.id)}
-                    className="rounded-lg p-2 bg-theme-bg-card-subtle text-theme-text-secondary transition-colors hover:bg-theme-bg-card"
-                    aria-label="复制"
-                  >
-                    <Copy className="h-4 w-4" />
-                  </button>
+                <div className="flex shrink-0 items-center gap-0.5 pt-[0.125rem]">
                   <button
                     onClick={() => setActionSheetTemplate(t)}
                     className="rounded-lg p-2 text-theme-text-secondary hover:bg-theme-bg-card interactive-press"
@@ -298,6 +284,11 @@ export function TemplateManager() {
             label: '编辑模板',
             icon: <Edit3 className="h-4 w-4" />,
             onClick: () => { if (actionSheetTemplate) setEditing(actionSheetTemplate); },
+          },
+          {
+            label: '复制模板',
+            icon: <Copy className="h-4 w-4" />,
+            onClick: () => { if (actionSheetTemplate) duplicateTemplate(actionSheetTemplate.id); },
           },
           {
             label: '删除模板',
