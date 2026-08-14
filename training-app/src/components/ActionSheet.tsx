@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export type ActionSheetItem = {
   label: string;
@@ -16,58 +17,111 @@ type Props = {
 
 export function ActionSheet({ open, items, onCancel, title }: Props) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(open);
+  const [mounted, setMounted] = useState(open);
+  const bodyLockRef = useRef<{
+    prevOverflow: string;
+    prevPosition: string;
+    prevTop: string;
+    prevWidth: string;
+    scrollY: number;
+  } | null>(null);
+
+  const lockBody = () => {
+    if (bodyLockRef.current) return;
+    const scrollY = window.scrollY;
+    const prevOverflow = document.body.style.overflow;
+    const prevPosition = document.body.style.position;
+    const prevTop = document.body.style.top;
+    const prevWidth = document.body.style.width;
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    bodyLockRef.current = { prevOverflow, prevPosition, prevTop, prevWidth, scrollY };
+  };
+  const unlockBody = () => {
+    const s = bodyLockRef.current;
+    if (!s) return;
+    document.body.style.overflow = s.prevOverflow;
+    document.body.style.position = s.prevPosition;
+    document.body.style.top = s.prevTop;
+    document.body.style.width = s.prevWidth;
+    window.scrollTo(0, s.scrollY);
+    bodyLockRef.current = null;
+  };
 
   useEffect(() => {
-    if (!open) return;
-    // 打开前先锁 body 滚动，防止 viewport 高度变化导致面板位置跳动
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const prevTouchAction = document.body.style.touchAction;
-    document.body.style.touchAction = 'none';
+    if (open) {
+      lockBody();
+      setMounted(true);
+      const id = window.requestAnimationFrame(() => setVisible(true));
+      return () => window.cancelAnimationFrame(id);
+    } else {
+      setVisible(false);
+      const id = window.setTimeout(() => {
+        setMounted(false);
+        unlockBody();
+      }, 300);
+      return () => window.clearTimeout(id);
+    }
+  }, [open]);
 
+  useEffect(() => {
+    if (!visible) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
     };
     window.addEventListener('keydown', handler);
-
     const preventDefault = (e: TouchEvent) => {
       if (e.target && panelRef.current && panelRef.current.contains(e.target as Node)) return;
       e.preventDefault();
     };
-    // 阻止遮罩上的 touchmove 穿透滚动页面
     window.addEventListener('touchmove', preventDefault, { passive: false });
-
     return () => {
       window.removeEventListener('keydown', handler);
       window.removeEventListener('touchmove', preventDefault);
-      document.body.style.overflow = prevOverflow;
-      document.body.style.touchAction = prevTouchAction;
     };
-  }, [open, onCancel]);
+  }, [visible, onCancel]);
 
-  if (!open) return null;
+  if (!mounted) return null;
 
-  return (
+  const content = (
     <div
-      className="fixed inset-0 z-[60] block"
-      style={{ pointerEvents: 'auto' }}
+      className="fixed inset-0 z-[80] block"
       onClick={onCancel}
+      aria-modal="true"
+      role="dialog"
     >
-      {/* 遮罩：绝对定位贴满全屏，拦截点击 */}
       <div
-        className="absolute inset-0 bg-black/45 animate-fade-in"
-        style={{ pointerEvents: 'auto', touchAction: 'none' }}
+        className="absolute inset-0 bg-black/45"
+        style={{
+          pointerEvents: 'auto',
+          touchAction: 'none',
+          transition: 'opacity 200ms ease-out',
+          opacity: visible ? 1 : 0,
+        }}
       />
-      {/* 面板：absolute bottom-0 直接贴底，动画从屏外滑入，避免 flex items-end + 锁 body 滚动产生的跳动 */}
+      {/*
+        面板：
+        - 用 mx-auto + left-0 + right-0 居中，避免用 -translate-x-1/2
+        - 滑入仅用 translateY(百分比 = 面板自身高度)，纯 CSS transition
+        - transform 不依赖 keyframes，不会出现覆盖/跳动
+      */}
       <div
         ref={panelRef}
-        className="absolute bottom-0 left-1/2 w-full max-w-2xl -translate-x-1/2 rounded-t-2xl bg-white p-3 shadow-2xl animate-slide-up"
-        style={{ pointerEvents: 'auto' }}
+        className="absolute left-0 right-0 bottom-0 mx-auto w-full max-w-2xl rounded-t-2xl bg-white p-3 shadow-2xl"
+        style={{
+          pointerEvents: 'auto',
+          transition: 'transform 280ms cubic-bezier(0.32, 0.72, 0, 1)',
+          transform: visible ? 'translateY(0%)' : 'translateY(100%)',
+          paddingBottom: `calc(12px + env(safe-area-inset-bottom, 0px))`,
+        }}
         onClick={(e) => {
           e.stopPropagation();
-          e.preventDefault();
         }}
       >
+        <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-gray-200" />
         {title && (
           <div className="mb-2 px-3 py-1.5 text-center text-xs font-medium text-theme-text-muted">
             {title}
@@ -106,4 +160,11 @@ export function ActionSheet({ open, items, onCancel, title }: Props) {
       </div>
     </div>
   );
+
+  // 使用 Portal 渲染到 document.body，彻底脱离祖先元素的 transform 影响
+  // 否则父级一旦有 transform（如 scale/translate），fixed 定位会变成相对父级而非视口，导致浮窗乱跳
+  if (typeof document !== 'undefined' && document.body) {
+    return createPortal(content, document.body);
+  }
+  return content;
 }

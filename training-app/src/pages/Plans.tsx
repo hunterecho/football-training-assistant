@@ -88,6 +88,8 @@ export function Plans() {
   const [showRestModal, setShowRestModal] = useState(false);
   const [restDuration, setRestDuration] = useState(0);
   const [pendingPlan, setPendingPlan] = useState<any>(null);
+  // 共享单个 ActionSheet 实例：存储当前打开菜单的计划 ID，以及菜单项构建所需上下文
+  const [actionSheetPlanId, setActionSheetPlanId] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -391,6 +393,7 @@ export function Plans() {
                       hasAnyInProgress={hasAnyInProgress}
                       isInProgressHighlight
                       shareStatus={shareStatusMap.get(plan.id)}
+                      onOpenActionSheet={() => setActionSheetPlanId(plan.id)}
                     />
                   );
                 })}
@@ -449,6 +452,7 @@ export function Plans() {
                             onEditDate={handleEditPlanDate}
                             hasAnyInProgress={hasAnyInProgress}
                             shareStatus={shareStatusMap.get(plan.id)}
+                            onOpenActionSheet={() => setActionSheetPlanId(plan.id)}
                           />
                         );
                       })}
@@ -497,6 +501,7 @@ export function Plans() {
                       onEditDate={handleEditPlanDate}
                       hasAnyInProgress={hasAnyInProgress}
                       shareStatus={shareStatusMap.get(plan.id)}
+                      onOpenActionSheet={() => setActionSheetPlanId(plan.id)}
                     />
                   );
                 })}
@@ -537,6 +542,7 @@ export function Plans() {
                             onEditDate={handleEditPlanDate}
                             hasAnyInProgress={hasAnyInProgress}
                             shareStatus={shareStatusMap.get(plan.id)}
+                            onOpenActionSheet={() => setActionSheetPlanId(plan.id)}
                           />
                         );
                       })}
@@ -749,6 +755,68 @@ export function Plans() {
           </div>
         </div>
       )}
+
+      {/* 共享单个 ActionSheet 实例：渲染到 Plans 顶层，脱离卡片的 transform 影响 */}
+      {(() => {
+        const plan = actionSheetPlanId ? plans.find(p => p.id === actionSheetPlanId) : null;
+        if (!plan) return null;
+        const isOwnPlan = plan.userId === user?.id;
+        const isTerminated = plan.status === 'terminated';
+        const isPlanned = plan.status === 'planned';
+        const planRecords = (recordsByPlanId.get(plan.id) || []).filter(r => {
+          const isSharedPlan = !!plan.sourcePlanId;
+          if (isSharedPlan && !isOwnPlan && user) {
+            return r.userId === user.id;
+          }
+          return true;
+        });
+        const inProgressRecord = planRecords.find(r =>
+          (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id
+        );
+        return (
+          <ActionSheet
+            open={!!actionSheetPlanId}
+            title="计划操作"
+            items={[
+              ...(isOwnPlan && !isTerminated ? [{
+                label: '分享链接',
+                icon: <Share2 className="h-4 w-4" />,
+                onClick: () => {
+                  const shareUrl = `${window.location.origin}${window.location.pathname.replace('/schedule', '')}/share/${plan.id}`;
+                  navigator.clipboard.writeText(shareUrl).then(() => {
+                    alert('分享链接已复制到剪贴板');
+                  }).catch(() => {
+                    alert('复制失败，请手动复制链接');
+                  });
+                },
+              }] : []),
+              ...(isOwnPlan && !isTerminated && !inProgressRecord ? [{
+                label: '取消分享',
+                icon: <XCircle className="h-4 w-4" />,
+                onClick: () => setConfirmTerminatePlan(plan.id),
+                danger: true,
+              }] : []),
+              ...(isOwnPlan && isTerminated ? [{
+                label: '重新分享',
+                icon: <Share2 className="h-4 w-4" />,
+                onClick: () => setConfirmTerminatePlan(plan.id),
+              }] : []),
+              ...(isOwnPlan && (isPlanned || isTerminated) && !inProgressRecord ? [{
+                label: '编辑计划',
+                icon: <Edit3 className="h-4 w-4" />,
+                onClick: () => handleEditPlanDate(plan.id, plan.date || ''),
+              }] : []),
+              ...(isOwnPlan ? [{
+                label: '删除计划',
+                icon: <Trash2 className="h-4 w-4" />,
+                onClick: () => setConfirmDelPlan(plan.id),
+                danger: true,
+              }] : []),
+            ] as ActionSheetItem[]}
+            onCancel={() => setActionSheetPlanId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -775,6 +843,7 @@ function PlanWithRecordsCard({
   hasAnyInProgress,
   isInProgressHighlight,
   shareStatus,
+  onOpenActionSheet,
 }: {
   plan: import('@/types').TrainingPlan;
   templates: import('@/types').Template[];
@@ -797,6 +866,8 @@ function PlanWithRecordsCard({
   hasAnyInProgress?: boolean;
   isInProgressHighlight?: boolean;
   shareStatus?: { exists: boolean; terminated: boolean };
+  /** 点击省略号菜单，交给父级统一 ActionSheet 处理 */
+  onOpenActionSheet: () => void;
 }) {
   const isCompleted = plan.status === 'completed';
   const isPlanned = plan.status === 'planned';
@@ -810,8 +881,6 @@ function PlanWithRecordsCard({
   const total = plan.drills ? plan.drills.reduce((a, d) => a + d.duration, 0) : 0;
 
   const inProgressRecord = records.find(r => (r.status === 'in_progress' || r.status === 'paused') && r.userId === currentUserId);
-
-  const [showActionSheet, setShowActionSheet] = useState(false);
 
   return (
     <div
@@ -896,7 +965,7 @@ function PlanWithRecordsCard({
               </button>
             )}
             <button
-              onClick={() => setShowActionSheet(true)}
+              onClick={onOpenActionSheet}
               className="rounded-lg p-2 text-theme-text-secondary hover:bg-theme-bg-card interactive-press"
               aria-label="更多操作"
             >
@@ -976,47 +1045,6 @@ function PlanWithRecordsCard({
           )}
         </div>
       )}
-      <ActionSheet
-        open={showActionSheet}
-        title="计划操作"
-        items={[
-          ...(isOwnPlan && !isTerminated ? [{
-            label: '分享链接',
-            icon: <Share2 className="h-4 w-4" />,
-            onClick: () => {
-              const shareUrl = `${window.location.origin}${window.location.pathname.replace('/schedule', '')}/share/${plan.id}`;
-              navigator.clipboard.writeText(shareUrl).then(() => {
-                alert('分享链接已复制到剪贴板');
-              }).catch(() => {
-                alert('复制失败，请手动复制链接');
-              });
-            },
-          }] : []),
-          ...(isOwnPlan && !isTerminated && !inProgressRecord ? [{
-            label: '取消分享',
-            icon: <XCircle className="h-4 w-4" />,
-            onClick: onTerminatePlan,
-            danger: true,
-          }] : []),
-          ...(isOwnPlan && isTerminated ? [{
-            label: '重新分享',
-            icon: <Share2 className="h-4 w-4" />,
-            onClick: onTerminatePlan,
-          }] : []),
-          ...(isOwnPlan && (isPlanned || isTerminated) && !inProgressRecord ? [{
-            label: '编辑计划',
-            icon: <Edit3 className="h-4 w-4" />,
-            onClick: () => onEditDate(plan.id, plan.date || ''),
-          }] : []),
-          ...(isOwnPlan ? [{
-            label: '删除计划',
-            icon: <Trash2 className="h-4 w-4" />,
-            onClick: onDeletePlan,
-            danger: true,
-          }] : []),
-        ] as ActionSheetItem[]}
-        onCancel={() => setShowActionSheet(false)}
-      />
     </div>
   );
 }
