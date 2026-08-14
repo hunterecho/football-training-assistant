@@ -15,9 +15,11 @@ import {
   Play,
   Square,
   AlertTriangle,
+  MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { ActionSheet, type ActionSheetItem } from '@/components/ActionSheet';
 
 export function TemplateManager() {
   const templates = useTrainingStore((s) => s.templates);
@@ -72,6 +74,7 @@ export function TemplateManager() {
     title: string;
   } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [actionSheetTemplate, setActionSheetTemplate] = useState<Template | null>(null);
 
   const createNew = () => {
     const tpl: Template = {
@@ -129,7 +132,7 @@ export function TemplateManager() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-2xl pb-28">
+    <div className="mx-auto w-full max-w-2xl pb-28 animate-route-fade">
       <div className="px-4 pt-6">
         <div className="flex items-center justify-between">
           <div>
@@ -146,13 +149,13 @@ export function TemplateManager() {
         </div>
       </div>
 
-      <div className="mt-4 space-y-3 px-4">
+      <div className="mt-4 space-y-3 px-4 responsive-grid">
         {[...templates].sort((a, b) => b.createdAt - a.createdAt).map((t) => {
           const total = t.drills.reduce((a, d) => a + d.duration, 0);
           return (
             <div
               key={t.id}
-              className="rounded-2xl border border-theme-border bg-theme-bg-card p-4 transition-colors hover:border-theme-accent hover:bg-theme-accent-light"
+              className="rounded-2xl border border-theme-border bg-theme-bg-card p-4 transition-colors hover:border-theme-accent hover:bg-theme-accent-light interactive-hover interactive-press"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
@@ -186,17 +189,11 @@ export function TemplateManager() {
                     <Copy className="h-4 w-4" />
                   </button>
                   <button
-                    onClick={() =>
-                      setConfirmDelete({
-                        target: 'template',
-                        templateId: t.id,
-                        title: t.name,
-                      })
-                    }
-                    className="rounded-lg p-2 bg-theme-bg-card-subtle text-theme-danger transition-colors hover:bg-theme-danger/20"
-                    aria-label="删除"
+                    onClick={() => setActionSheetTemplate(t)}
+                    className="rounded-lg p-2 text-theme-text-secondary hover:bg-theme-bg-card interactive-press"
+                    aria-label="更多操作"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <MoreHorizontal className="h-4 w-4" />
                   </button>
                 </div>
               </div>
@@ -291,6 +288,33 @@ export function TemplateManager() {
         confirmText="确定"
         onConfirm={() => setErrorMessage(null)}
         onCancel={() => setErrorMessage(null)}
+      />
+
+      <ActionSheet
+        open={!!actionSheetTemplate}
+        title="模板操作"
+        items={[
+          {
+            label: '编辑模板',
+            icon: <Edit3 className="h-4 w-4" />,
+            onClick: () => { if (actionSheetTemplate) setEditing(actionSheetTemplate); },
+          },
+          {
+            label: '删除模板',
+            icon: <Trash2 className="h-4 w-4" />,
+            onClick: () => {
+              if (actionSheetTemplate) {
+                setConfirmDelete({
+                  target: 'template',
+                  templateId: actionSheetTemplate.id,
+                  title: actionSheetTemplate.name,
+                });
+              }
+            },
+            danger: true,
+          },
+        ]}
+        onCancel={() => setActionSheetTemplate(null)}
       />
     </div>
   );

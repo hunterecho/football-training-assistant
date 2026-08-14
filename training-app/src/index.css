@@ -99,8 +99,65 @@
 
 @layer utilities {
   .font-mono {
-    font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, SFMono-Regular, Menlo,
+    font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, SFMono-Regular, Meno,
       Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  }
+}
+
+/* ===== 动画 ===== */
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.animate-shimmer {
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes route-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-route-fade {
+  animation: route-fade 0.25s ease-out;
+}
+
+/* ===== 微交互反馈 ===== */
+@media (hover: hover) {
+  .interactive-hover:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  }
+}
+
+.interactive-press {
+  transition: transform 0.1s ease;
+}
+.interactive-press:active {
+  transform: scale(0.96);
+}
+
+/* ===== 大屏响应式双列布局 ===== */
+@media (min-width: 768px) {
+  .responsive-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
   }
 }
 

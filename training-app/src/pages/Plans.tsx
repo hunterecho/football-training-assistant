@@ -17,9 +17,11 @@ import { Plus,
   ChevronLeft,
   ChevronRight,
   Edit3,
+  MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { ActionSheet, type ActionSheetItem } from '@/components/ActionSheet';
 import { api } from '@/lib/api';
 import type { PlanStatus } from '@/types';
 
@@ -82,22 +84,10 @@ export function Plans() {
   const [expandedRecords, setExpandedRecords] = useState<Set<string>>(new Set());
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [editingDate, setEditingDate] = useState('');
-  const [shareMenuOpen, setShareMenuOpen] = useState<string | null>(null);
   const [shareStatusMap, setShareStatusMap] = useState<Map<string, { exists: boolean; terminated: boolean }>>(new Map());
   const [showRestModal, setShowRestModal] = useState(false);
   const [restDuration, setRestDuration] = useState(0);
   const [pendingPlan, setPendingPlan] = useState<any>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('.share-menu-container')) {
-        setShareMenuOpen(null);
-      }
-    };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, []);
 
   useEffect(() => {
     if (user) {
@@ -293,7 +283,7 @@ export function Plans() {
   const hasAnyInProgress = records.some(r => (r.status === 'in_progress' || r.status === 'paused') && r.userId === user?.id);
 
   return (
-    <div className="mx-auto w-full max-w-2xl pb-28">
+    <div className="mx-auto w-full max-w-2xl pb-28 animate-route-fade">
       <div className="px-4 pt-6">
         <div className="flex items-center justify-between">
           <div>
@@ -370,7 +360,7 @@ export function Plans() {
                   进行中的训练
                 </span>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-3 responsive-grid">
                 {groupedPlans.inProgress.map((plan) => {
                   const planRecords = getPlanRecords(plan.id, !!plan.sourcePlanId, plan.userId === user?.id);
                   return (
@@ -399,8 +389,6 @@ export function Plans() {
                       currentUserId={user?.id}
                       onEditDate={handleEditPlanDate}
                       hasAnyInProgress={hasAnyInProgress}
-                      shareMenuOpen={shareMenuOpen}
-                      setShareMenuOpen={setShareMenuOpen}
                       isInProgressHighlight
                       shareStatus={shareStatusMap.get(plan.id)}
                     />
@@ -431,7 +419,7 @@ export function Plans() {
                         </span>
                       )}
                     </div>
-                    <div className="space-y-3">
+                    <div className="space-y-3 responsive-grid">
                       {items.map((plan) => {
                         const planRecords = getPlanRecords(plan.id, !!plan.sourcePlanId, plan.userId === user?.id);
                         return (
@@ -460,8 +448,6 @@ export function Plans() {
                             currentUserId={user?.id}
                             onEditDate={handleEditPlanDate}
                             hasAnyInProgress={hasAnyInProgress}
-                            shareMenuOpen={shareMenuOpen}
-                            setShareMenuOpen={setShareMenuOpen}
                             shareStatus={shareStatusMap.get(plan.id)}
                           />
                         );
@@ -481,7 +467,7 @@ export function Plans() {
                   计划历史
                 </span>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-3 responsive-grid">
                 {[...groupedPlans.completed, ...groupedPlans.skipped].map((plan) => {
                   const planRecords = getPlanRecords(plan.id, !!plan.sourcePlanId, plan.userId === user?.id);
                   return (
@@ -510,8 +496,6 @@ export function Plans() {
                       currentUserId={user?.id}
                       onEditDate={handleEditPlanDate}
                       hasAnyInProgress={hasAnyInProgress}
-                      shareMenuOpen={shareMenuOpen}
-                      setShareMenuOpen={setShareMenuOpen}
                       shareStatus={shareStatusMap.get(plan.id)}
                     />
                   );
@@ -523,7 +507,7 @@ export function Plans() {
                         {fmtDateLabel(date)}
                       </div>
                     </div>
-                    <div className="space-y-3">
+                    <div className="space-y-3 responsive-grid">
                       {items.map((plan) => {
                         const planRecords = getPlanRecords(plan.id, !!plan.sourcePlanId, plan.userId === user?.id);
                         return (
@@ -552,8 +536,6 @@ export function Plans() {
                             currentUserId={user?.id}
                             onEditDate={handleEditPlanDate}
                             hasAnyInProgress={hasAnyInProgress}
-                            shareMenuOpen={shareMenuOpen}
-                            setShareMenuOpen={setShareMenuOpen}
                             shareStatus={shareStatusMap.get(plan.id)}
                           />
                         );
@@ -791,8 +773,6 @@ function PlanWithRecordsCard({
   currentUserId,
   onEditDate,
   hasAnyInProgress,
-  shareMenuOpen,
-  setShareMenuOpen,
   isInProgressHighlight,
   shareStatus,
 }: {
@@ -815,8 +795,6 @@ function PlanWithRecordsCard({
   currentUserId?: string;
   onEditDate: (planId: string, date: string) => void;
   hasAnyInProgress?: boolean;
-  shareMenuOpen: string | null;
-  setShareMenuOpen: (id: string | null) => void;
   isInProgressHighlight?: boolean;
   shareStatus?: { exists: boolean; terminated: boolean };
 }) {
@@ -833,10 +811,12 @@ function PlanWithRecordsCard({
 
   const inProgressRecord = records.find(r => (r.status === 'in_progress' || r.status === 'paused') && r.userId === currentUserId);
 
+  const [showActionSheet, setShowActionSheet] = useState(false);
+
   return (
     <div
       className={cn(
-        'rounded-2xl border',
+        'rounded-2xl border interactive-hover interactive-press',
         isCompleted || isSkipped
           ? 'border-theme-border bg-theme-bg-secondary-muted opacity-70'
           : isShareDeleted
@@ -915,98 +895,13 @@ function PlanWithRecordsCard({
                 <PlayCircle className="h-4 w-4" />
               </button>
             )}
-            {isOwnPlan && (
-              <div className="relative share-menu-container">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShareMenuOpen(shareMenuOpen === plan.id ? null : plan.id);
-                  }}
-                  className={cn(
-                    'rounded-lg p-2 transition-colors',
-                    shareMenuOpen === plan.id
-                      ? 'bg-theme-accent/10 text-theme-accent'
-                      : 'bg-theme-bg-card text-theme-text-secondary hover:bg-theme-bg-card'
-                  )}
-                  aria-label="分享计划"
-                  title="分享计划"
-                >
-                  <Share2 className="h-4 w-4" />
-                </button>
-                {shareMenuOpen === plan.id && (
-                  <div className="absolute right-0 top-full mt-1 w-32 rounded-xl border border-theme-border bg-white shadow-lg py-1 z-10">
-                    {plan.status !== 'terminated' ? (
-                      <>
-                        <button
-                          onClick={() => {
-                            const shareUrl = `${window.location.origin}${window.location.pathname.replace('/schedule', '')}/share/${plan.id}`;
-                            navigator.clipboard.writeText(shareUrl).then(() => {
-                              alert('分享链接已复制到剪贴板');
-                            }).catch(() => {
-                              alert('复制失败，请手动复制链接');
-                            });
-                            setShareMenuOpen(null);
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-xs text-theme-text-secondary hover:bg-theme-bg-card"
-                        >
-                          <Share2 className="h-3 w-3" />
-                          分享链接
-                        </button>
-                        {!inProgressRecord && (
-                          <button
-                            onClick={() => {
-                              onTerminatePlan();
-                              setShareMenuOpen(null);
-                            }}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-theme-danger hover:bg-theme-bg-card"
-                          >
-                            <XCircle className="h-3 w-3" />
-                            取消分享
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          onTerminatePlan();
-                          setShareMenuOpen(null);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-xs text-theme-accent hover:bg-theme-bg-card"
-                      >
-                        <Share2 className="h-3 w-3" />
-                        重新分享
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-            {(isPlanned || isTerminated) && !inProgressRecord && isOwnPlan && (
-              <button
-                onClick={() => onEditDate(plan.id, plan.date || '')}
-                className="rounded-lg bg-theme-bg-card p-2 text-theme-text-secondary hover:bg-theme-bg-card"
-                aria-label="编辑计划"
-                title="编辑训练日期"
-              >
-                <Edit3 className="h-4 w-4" />
-              </button>
-            )}
-            {isOwnPlan && (
-              <button
-                onClick={onDeletePlan}
-                disabled={!!inProgressRecord}
-                className={cn(
-                  'rounded-lg p-2 transition-colors',
-                  inProgressRecord
-                    ? 'bg-theme-bg-card-subtle text-theme-text-muted cursor-not-allowed'
-                    : 'bg-theme-bg-card text-theme-danger hover:bg-theme-danger/20'
-                )}
-                aria-label="删除"
-                title={inProgressRecord ? '无法删除正在训练的计划' : '删除'}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            )}
+            <button
+              onClick={() => setShowActionSheet(true)}
+              className="rounded-lg p-2 text-theme-text-secondary hover:bg-theme-bg-card interactive-press"
+              aria-label="更多操作"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
           </div>
       </div>
 
@@ -1081,6 +976,47 @@ function PlanWithRecordsCard({
           )}
         </div>
       )}
+      <ActionSheet
+        open={showActionSheet}
+        title="计划操作"
+        items={[
+          ...(isOwnPlan && !isTerminated ? [{
+            label: '分享链接',
+            icon: <Share2 className="h-4 w-4" />,
+            onClick: () => {
+              const shareUrl = `${window.location.origin}${window.location.pathname.replace('/schedule', '')}/share/${plan.id}`;
+              navigator.clipboard.writeText(shareUrl).then(() => {
+                alert('分享链接已复制到剪贴板');
+              }).catch(() => {
+                alert('复制失败，请手动复制链接');
+              });
+            },
+          }] : []),
+          ...(isOwnPlan && !isTerminated && !inProgressRecord ? [{
+            label: '取消分享',
+            icon: <XCircle className="h-4 w-4" />,
+            onClick: onTerminatePlan,
+            danger: true,
+          }] : []),
+          ...(isOwnPlan && isTerminated ? [{
+            label: '重新分享',
+            icon: <Share2 className="h-4 w-4" />,
+            onClick: onTerminatePlan,
+          }] : []),
+          ...(isOwnPlan && (isPlanned || isTerminated) && !inProgressRecord ? [{
+            label: '编辑计划',
+            icon: <Edit3 className="h-4 w-4" />,
+            onClick: () => onEditDate(plan.id, plan.date || ''),
+          }] : []),
+          ...(isOwnPlan ? [{
+            label: '删除计划',
+            icon: <Trash2 className="h-4 w-4" />,
+            onClick: onDeletePlan,
+            danger: true,
+          }] : []),
+        ] as ActionSheetItem[]}
+        onCancel={() => setShowActionSheet(false)}
+      />
     </div>
   );
 }

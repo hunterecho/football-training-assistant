@@ -27,15 +27,22 @@ export function BottomNav() {
             end={item.to === '/'}
             className={({ isActive }) =>
               cn(
-                'flex flex-1 flex-col items-center justify-center gap-1 rounded-xl py-2 text-xs transition-colors',
+                'flex flex-1 flex-col items-center justify-center gap-1 py-2 text-xs transition-colors interactive-press',
                 isActive
-                  ? 'bg-theme-accent text-white'
-                  : 'text-theme-text-muted hover:bg-theme-accent-light hover:text-theme-text-secondary'
+                  ? 'text-theme-accent'
+                  : 'text-theme-text-muted hover:text-theme-text-secondary'
               )
             }
           >
-            <item.icon className="h-5 w-5" strokeWidth={2} />
-            <span className="max-w-[60px] truncate">{item.label}</span>
+            {({ isActive }) => (
+              <>
+                <item.icon className="h-5 w-5" strokeWidth={2} />
+                <span className="max-w-[60px] truncate">{item.label}</span>
+                {isActive && (
+                  <div className="h-0.5 w-4 rounded-full bg-theme-accent" />
+                )}
+              </>
+            )}
           </NavLink>
         ))}
       </div>

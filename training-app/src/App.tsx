@@ -11,6 +11,7 @@ import { Settings } from '@/pages/Settings';
 import { AdminSettings } from '@/pages/AdminSettings';
 import { Login } from '@/pages/Login';
 import { ShareDetail } from '@/pages/ShareDetail';
+import { CardSkeleton } from '@/components/CardSkeleton';
 
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -70,9 +71,9 @@ function AppContent() {
 
   if (showLoading) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 bg-theme-bg text-theme-text">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-theme-accent border-t-transparent" />
-        <div className="text-sm text-theme-text-muted">正在加载训练数据...</div>
+      <div className="mx-auto max-w-2xl p-4 bg-theme-bg">
+        <div className="mb-4 h-8 w-32 rounded-lg bg-gray-100 animate-shimmer" />
+        <CardSkeleton count={4} />
       </div>
     );
   }
@@ -87,17 +88,19 @@ function AppContent() {
             </div>
           </div>
         )}
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/share/:planId" element={<RequireAuth><ShareDetail /></RequireAuth>} />
-          <Route path="/" element={<RequireAuth><TodayPlan /></RequireAuth>} />
-          <Route path="/schedule" element={<RequireAuth><Plans /></RequireAuth>} />
-          <Route path="/templates" element={<RequireAuth><TemplateManager /></RequireAuth>} />
-          <Route path="/import" element={<RequireAuth><ImportPlan /></RequireAuth>} />
-          <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
-          <Route path="/youyouyoujianchuiyan-settings" element={<RequireAuth><AdminSettings /></RequireAuth>} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <div key={location.pathname} className="animate-route-fade">
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/share/:planId" element={<RequireAuth><ShareDetail /></RequireAuth>} />
+            <Route path="/" element={<RequireAuth><TodayPlan /></RequireAuth>} />
+            <Route path="/schedule" element={<RequireAuth><Plans /></RequireAuth>} />
+            <Route path="/templates" element={<RequireAuth><TemplateManager /></RequireAuth>} />
+            <Route path="/import" element={<RequireAuth><ImportPlan /></RequireAuth>} />
+            <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
+            <Route path="/youyouyoujianchuiyan-settings" element={<RequireAuth><AdminSettings /></RequireAuth>} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
       </div>
       {user && !location.pathname.startsWith('/share/') && <BottomNav />}
       {user && !location.pathname.startsWith('/share/') && <FloatingSession />}

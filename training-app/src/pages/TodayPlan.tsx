@@ -303,7 +303,7 @@ export function TodayPlan() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-2xl pb-28">
+    <div className="mx-auto w-full max-w-2xl pb-28 animate-route-fade">
       {/* Header */}
       <div className="px-4 pt-6">
         <div className="flex items-center justify-between gap-3">
@@ -363,7 +363,7 @@ export function TodayPlan() {
                 <span className="text-[10px] text-theme-warning">训练中，无法切换</span>
               )}
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide responsive-grid">
               {recentPlans.map((plan) => {
                 const isActive = plan.id === currentPlan?.id;
                 const isDisabled = hasAnyActiveSession && !isActive && session.status !== 'finished';
@@ -376,7 +376,7 @@ export function TodayPlan() {
                     onClick={() => handlePlanSwitch(plan.id)}
                     disabled={isDisabled}
                     className={cn(
-                      'shrink-0 rounded-xl border px-3 py-2 text-left transition-all',
+                      'shrink-0 rounded-xl border px-3 py-2 text-left transition-all interactive-hover interactive-press',
                       isActive
                         ? isShared
                           ? 'border-theme-warning bg-theme-warning text-white shadow-lg'
